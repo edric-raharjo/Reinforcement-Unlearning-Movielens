@@ -26,7 +26,7 @@ LAMBDA_VALS = sorted(set(
 FIXED_METHODS = ["Ye_ApxI", "Ye_multi"]
 SWEPT_METHODS = ["New_True_inf", "New_Max"]
 
-TOP_PERCENT     = 0.125
+TOP_PERCENT     = 0.05
 TOP_SELECTION_K = 10
 EVAL_OVERHEAD_S = 20
 # ───────────────────────────────────────────────────────────────────────────

@@ -211,13 +211,14 @@ def evaluate_policy(policy_net, trajectories, K=10):
     )
 
 def eval_all_ks(net):
-    """Mirrors GPU_Enabled_Combine.py: eval_all_ks(net, ret_trajs, for_trajs)
+    """Mirrors GPU_Enabled_Combine.py: eval_all_ks(net, ret_trajs, for_trajs, all_trajs)
     — build_state_fn and candidate_movies are global in the main script too."""
     out = {}
     for K in KS:
         h_r, n_r = evaluate_policy(net, retain_trajectories,  K=K)
         h_f, n_f = evaluate_policy(net, forget_trajectories,  K=K)
-        out[K] = (h_r, n_r, h_f, n_f)
+        h_c, n_c = evaluate_policy(net, trajectories_all, K=K)
+        out[K] = (h_r, n_r, h_f, n_f, h_c, n_c)
     return out
 
 # ---------------------------------------------------------------------------
@@ -382,9 +383,10 @@ record(states_ok, f"build_state_fn identical across repeated calls ({len(test_us
 record(state_dim == user_feat_df.shape[1] + num_genres,
        f"state_dim = {state_dim} = user_feat({user_feat_df.shape[1]}) + genres({num_genres})")
 
-info(f"Forget trajectories : {len(forget_trajectories):,}")
-info(f"Retain trajectories : {len(retain_trajectories):,}")
-info(f"Candidate movies    : {len(candidate_movies):,}")
+info(f"Combined trajectories: {len(trajectories_all):,}")
+info(f"Forget trajectories  : {len(forget_trajectories):,}")
+info(f"Retain trajectories  : {len(retain_trajectories):,}")
+info(f"Candidate movies     : {len(candidate_movies):,}")
 
 # ---------------------------------------------------------------------------
 sep("6. Eval Determinism  (best trained model × 3)")
@@ -434,13 +436,13 @@ else:
         r1, r2, r3 = res_1[K], res_2[K], res_3[K]
         all_match  = all(
             abs(r1[i] - r2[i]) < TOLERANCE and abs(r1[i] - r3[i]) < TOLERANCE
-            for i in range(4)
+            for i in range(6)
         )
         record(all_match,
                f"eval_all_ks K={K} bit-identical × 3  "
-               f"retain_Hit={r1[0]:.6f}  forget_Hit={r1[2]:.6f}")
+               f"retain_Hit={r1[0]:.6f}  forget_Hit={r1[2]:.6f}  combined_Hit={r1[4]:.6f}")
         if not all_match:
-            for i, name in enumerate(["retain_Hit", "retain_NDCG", "forget_Hit", "forget_NDCG"]):
+            for i, name in enumerate(["retain_Hit", "retain_NDCG", "forget_Hit", "forget_NDCG", "combined_Hit", "combined_NDCG"]):
                 d12, d13 = abs(r1[i]-r2[i]), abs(r1[i]-r3[i])
                 if max(d12, d13) > TOLERANCE:
                     warn(f"    K={K} {name}: run1={r1[i]:.8f} run2={r2[i]:.8f} "
@@ -519,6 +521,8 @@ for method in METHODS:
                 ("base_retain_NDCG", recomp_trained[K][1]),
                 ("base_forget_Hit",  recomp_trained[K][2]),
                 ("base_forget_NDCG", recomp_trained[K][3]),
+                ("base_combined_Hit",  recomp_trained[K][4]),
+                ("base_combined_NDCG", recomp_trained[K][5]),
             ]:
                 diff     = abs(float(stored[col]) - val)
                 max_diff = max(max_diff, diff)

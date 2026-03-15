@@ -577,10 +577,17 @@ def append_eval_rows(
     loss_retain_final,
     loss_total_final,
 ):
-    after = eval_all_ks(net_after, retain_trajectories, forget_trajectories)
+    # FIX 1: Pass trajectories_all to match the new eval_all_ks signature
+    after = eval_all_ks(net_after, retain_trajectories, forget_trajectories, trajectories_all)
+    
     for K in KS:
-        h_r, n_r, h_f, n_f = after[K]
-        bh_r, bn_r, bh_f, bn_f = baseline[K]
+        # FIX 2: Unpack all 6 returned values (including the new combined metrics)
+        h_r, n_r, h_f, n_f, h_c, n_c = after[K]
+        
+        # FIX 3: Safely slice the first 4 elements of baseline so it never crashes, 
+        # regardless of how many items the baseline dictionary holds.
+        bh_r, bn_r, bh_f, bn_f = baseline[K][:4] 
+        
         all_results.append({
             "train_lr": train_lr,
             "gamma": gamma,
@@ -602,6 +609,8 @@ def append_eval_rows(
             "retain_NDCG": n_r,
             "forget_Hit": h_f,
             "forget_NDCG": n_f,
+            "combined_Hit": h_c,    # FIX 4: Add new combined Hit
+            "combined_NDCG": n_c,   # FIX 4: Add new combined NDCG
             "fq_hit": (bh_f - h_f) - 2.0 * (bh_r - h_r),
             "fq_ndcg": (bn_f - n_f) - 2.0 * (bn_r - n_r),
             "base_retain_Hit": bh_r,
