@@ -1,0 +1,16 @@
+# Python Virtual Environments
+.venv/
+
+# Datasets (Local data should not be tracked)
+ml-1m/
+
+# Output and Model Results
+results/
+r_ul_movielens/
+results_no_ul_model/
+
+# Common Python artifacts (Recommended Additions)
+__pycache__/
+*.py[cod]
+*$py.class
+.env
