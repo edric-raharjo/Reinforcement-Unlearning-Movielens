@@ -38,7 +38,7 @@ EVAL_K     = 10
 DATA_DIR     = "C:/Bob/ml-1m"
 RESULTS_BASE = Path(f"C:/Bob/results/{FORGET_PERCENTAGE}_percent")
 MODELS_DIR   = RESULTS_BASE / "models"
-ANALYSIS_DIR = RESULTS_BASE / "analysis"
+ANALYSIS_DIR = RESULTS_BASE / "latent" / "analysis"
 
 TRAIN_RESULTS_MERGED = RESULTS_BASE / "train_phase_results.csv"
 RESULTS_MERGED       = RESULTS_BASE / "tuning_full_results.csv"
