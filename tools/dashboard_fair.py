@@ -707,7 +707,7 @@ def main():
         loss_fig=loss_fig,
     )
 
-    out_path = results_base / "dashboard.html"
+    out_path = results_base / "analyze" / "overall" / "dashboard.html"
     out_path.write_text(html, encoding="utf-8")
     print(f"Dashboard written to: {out_path} (Mode: {mode})")
 
