@@ -373,10 +373,74 @@ def build_pareto_figure(df: pd.DataFrame, k_val: int):
     fig.update_xaxes(autorange="reversed")
     return fig
 
+def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
+    """Drop this call into main() right before build_loss_figure() to diagnose."""
+    expected_numeric = [
+        "train_lr", "gamma", "hidden_dim", "train_batch",
+        "unlearn_lr", "unlearn_iters", "lambda_retain", "iter",
+        "loss_forget", "loss_retain", "loss_total"
+    ]
+    existing_numeric = [c for c in expected_numeric if c in loss_df.columns]
+    ldf = normalize_numeric(loss_df.copy(), existing_numeric)
+
+    match_cols = [
+        "method", "train_lr", "gamma", "hidden_dim",
+        "train_batch", "unlearn_lr", "unlearn_iters", "lambda_retain"
+    ]
+
+    print("\n" + "="*70)
+    print("LOSS LOG DEBUG")
+    print(f"  loss_df shape       : {ldf.shape}")
+    print(f"  loss_df methods     : {ldf['method'].unique().tolist() if 'method' in ldf.columns else 'NO METHOD COL'}")
+    print(f"  loss_df columns     : {ldf.columns.tolist()}")
+    print("="*70)
+
+    for _, s in selected_df.iterrows():
+        method = s.get("method", "???")
+        print(f"\n--- {method} ---")
+        print("  Selected row values:")
+        for col in match_cols:
+            print(f"    {col:<20} = {repr(s.get(col, 'NOT IN SELECTED'))}")
+
+        # Check method rows first
+        method_rows = ldf[ldf["method"] == method] if "method" in ldf.columns else pd.DataFrame()
+        print(f"\n  Rows in loss log with method='{method}': {len(method_rows)}")
+
+        if method_rows.empty:
+            print("  !! No rows at all for this method — check method name spelling")
+            continue
+
+        print("  Sample of loss log rows for this method (first 3):")
+        print("  " + method_rows[match_cols].head(3).to_string().replace("\n", "\n  "))
+
+        # Step through each column and show how many rows survive
+        mask = pd.Series(True, index=ldf.index)
+        mask &= (ldf["method"] == method)
+        print(f"\n  Mask after method filter         : {mask.sum()} rows")
+
+        for col in match_cols[1:]:  # skip method
+            if col not in ldf.columns:
+                print(f"    {col:<20} → COLUMN MISSING in loss_df, skipping")
+                continue
+            val = s.get(col, np.nan)
+            before = mask.sum()
+            if pd.isna(val):
+                mask &= ldf[col].isna()
+            else:
+                mask &= ldf[col].fillna(-999).astype(float).round(5) == round(float(val), 5)
+            after = mask.sum()
+            log_vals = ldf.loc[ldf["method"] == method, col].dropna().unique()[:5]
+            print(f"    {col:<20} selected={repr(val):<12}  "
+                  f"log_vals={log_vals.tolist()}  "
+                  f"rows: {before}→{after}")
+
+        print(f"\n  Final matching rows: {mask.sum()}")
+
+    print("="*70 + "\n")
 
 def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
     if loss_df.empty: return None
-        
+
     expected_numeric = [
         "train_lr", "gamma", "hidden_dim", "train_batch",
         "unlearn_lr", "unlearn_iters", "lambda_retain", "iter",
@@ -384,52 +448,136 @@ def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
     ]
     existing_numeric = [c for c in expected_numeric if c in loss_df.columns]
     loss_df = normalize_numeric(loss_df.copy(), existing_numeric)
-    
+
     rows = len(selected_df)
     if rows == 0: return None
-        
+
+    # Progressive relaxation order — drop least important constraints first
+    # Each entry is the set of columns to match on (always includes method)
+    MATCH_STRATEGIES = [
+        # Exact
+        ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
+         "unlearn_lr", "unlearn_iters", "lambda_retain"],
+        # Drop lambda (fixed for Ye methods, may differ in log)
+        ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
+         "unlearn_lr", "unlearn_iters"],
+        # Drop unlearn_iters — closest unlearn config
+        ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
+         "unlearn_lr"],
+        # Drop unlearn_lr too — any unlearn config for this train config
+        ["method", "train_lr", "gamma", "hidden_dim", "train_batch"],
+        # Drop train_batch
+        ["method", "train_lr", "gamma", "hidden_dim"],
+        # Absolute fallback — any run for this method
+        ["method"],
+    ]
+
+    STRATEGY_LABELS = [
+        "exact match",
+        "closest (lambda relaxed)",
+        "closest (iters relaxed)",
+        "closest (unlearn_lr + iters relaxed)",
+        "closest (train_batch relaxed)",
+        "closest (method only — no matching run found)",
+    ]
+
+    def try_match(ldf, s, cols):
+        mask = pd.Series(True, index=ldf.index)
+        for col in cols:
+            if col not in ldf.columns:
+                continue
+            val = s.get(col, np.nan)
+            if col == "method":
+                mask &= (ldf["method"] == val)
+            elif pd.isna(val):
+                mask &= ldf[col].isna()
+            else:
+                mask &= (
+                    ldf[col].fillna(-999).astype(float).round(5)
+                    == round(float(val), 5)
+                )
+        return ldf[mask].copy().sort_values("iter")
+
+    subplot_titles = []
+    matched_subs   = []
+
+    for _, s in selected_df.iterrows():
+        method = s.get("method", "???")
+        sub, strategy_label = pd.DataFrame(), ""
+
+        for strategy_cols, label in zip(MATCH_STRATEGIES, STRATEGY_LABELS):
+            candidate = try_match(loss_df, s, strategy_cols)
+            if not candidate.empty:
+                sub            = candidate
+                strategy_label = label
+                break
+
+        matched_subs.append((sub, strategy_label))
+        title = f"{method} — signed-log loss"
+        if strategy_label and strategy_label != "exact match":
+            title += f"  ⚠ {strategy_label}"
+        subplot_titles.append(title)
+
     fig = make_subplots(
         rows=rows, cols=1, shared_xaxes=False,
-        subplot_titles=[f"{m} — signed-log loss" for m in selected_df["method"].tolist()],
+        subplot_titles=subplot_titles,
         vertical_spacing=0.08,
     )
-    
-    def robust_match(df_col, val):
-        if pd.isna(val): return df_col.isna()
-        return df_col.fillna(-999).astype(float).round(5) == round(float(val), 5)
 
-    color_map = {"loss_forget": "#dc2626", "loss_retain": "#2563eb", "loss_total": "#111827"}
-    
-    for i, (_, s) in enumerate(selected_df.iterrows(), start=1):
-        mask = (loss_df["method"] == s["method"])
-        for col in ["train_lr", "gamma", "hidden_dim", "train_batch", "unlearn_lr", "unlearn_iters", "lambda_retain"]:
-            if col in loss_df.columns: mask &= robust_match(loss_df[col], s.get(col))
-                
-        sub = loss_df[mask].copy().sort_values("iter")
-        if sub.empty: continue
-            
+    color_map = {
+        "loss_forget": "#dc2626",
+        "loss_retain": "#2563eb",
+        "loss_total":  "#111827",
+    }
+
+    for i, ((_, s), (sub, strategy_label)) in enumerate(
+        zip(selected_df.iterrows(), matched_subs), start=1
+    ):
+        method = s.get("method", "???")
+
+        if sub.empty:
+            print(f"  [loss chart] No rows found for {method} even with full relaxation.")
+            continue
+
+        if strategy_label != "exact match":
+            print(f"  [loss chart] {method}: used {strategy_label} "
+                  f"({len(sub)} rows)")
+
         for ln in ["loss_forget", "loss_retain", "loss_total"]:
-            if ln not in sub.columns: continue
+            if ln not in sub.columns:
+                continue
             sub[f"{ln}_sl"] = sub[ln].apply(signed_log10)
             fig.add_trace(go.Scatter(
-                x=sub["iter"], y=sub[f"{ln}_sl"],
-                mode="lines+markers", name=ln,
-                line=dict(color=color_map.get(ln, "#000"), width=2), marker=dict(size=5),
+                x=sub["iter"],
+                y=sub[f"{ln}_sl"],
+                mode="lines+markers",
+                name=ln,
+                line=dict(color=color_map.get(ln, "#000"), width=2),
+                marker=dict(size=5),
                 showlegend=(i == 1),
-                customdata=np.stack([sub[ln].fillna(np.nan), sub[f"{ln}_sl"].fillna(np.nan)], axis=1),
-                hovertemplate="iter=%{x}<br>raw=%{customdata[0]:.6g}<br>signed_log=%{customdata[1]:.4f}<extra></extra>",
+                customdata=np.stack(
+                    [sub[ln].fillna(np.nan), sub[f"{ln}_sl"].fillna(np.nan)],
+                    axis=1,
+                ),
+                hovertemplate=(
+                    "iter=%{x}<br>raw=%{customdata[0]:.6g}"
+                    "<br>signed_log=%{customdata[1]:.4f}<extra></extra>"
+                ),
             ), row=i, col=1)
-            
+
         fig.update_xaxes(title_text="Unlearning iteration", row=i, col=1)
-        fig.update_yaxes(title_text=signed_log_label(), row=i, col=1)
-        
+        fig.update_yaxes(title_text=signed_log_label(),      row=i, col=1)
+
     fig.update_layout(
-        title="Loss curves by selected run", template="plotly_white",
-        height=max(380, 300 * rows), margin=dict(l=50, r=40, t=90, b=40),
+        title="Loss curves by selected run",
+        template="plotly_white",
+        height=max(380, 300 * rows),
+        margin=dict(l=50, r=40, t=90, b=40),
         font=dict(family="Inter, system-ui, sans-serif"),
-        autosize=True
+        autosize=True,
     )
     return fig
+
 
 
 def build_html(
@@ -691,6 +839,7 @@ def main():
         raise ValueError(f"No valid runs could be processed for K={k_val}.")
 
     pareto_fig = build_pareto_figure(results_df, k_val)
+    # debug_loss_match(loss_df, selected_df)   # ← add this line
     loss_fig = build_loss_figure(loss_df, selected_df)
 
     html = build_html(
