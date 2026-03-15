@@ -19,11 +19,13 @@ PARETO_COLORS = {
     "New_Max": "#dc2626"
 }
 
+TOP_SELECTION_METRIC = "base_retain_Hit"
+
 # =====================================================================
 # CUSTOM UTILITY SCORE (Used when mode == 'fair')
 # =====================================================================
 def custom_utility_score(forget_drop_rel, retain_drop_rel):
-    scaling_factor = 10.0
+    scaling_factor = 5.0
     if retain_drop_rel <= 0:
         penalty = 0
     else:
@@ -36,19 +38,20 @@ def custom_utility_score(forget_drop_rel, retain_drop_rel):
 def parse_args():
     if len(sys.argv) < 2:
         raise ValueError(
-            "Usage: python dashboard.py <forget_percentage> [retain_drop_threshold] [K] [mode]\n"
+            "Usage: python dashboard.py <forget_percentage> [retain_drop_threshold] [K] [mode] [num_top_models]\n"
             "Modes: standard (default) or fair\n"
-            "Example: python dashboard.py 20 0.01 10 standard"
+            "Example: python dashboard.py 20 0.01 10 standard 5"
         )
     forget_percentage = int(sys.argv[1])
     retain_drop_threshold = float(sys.argv[2]) if len(sys.argv) >= 3 else 0.01
     k_val = int(sys.argv[3]) if len(sys.argv) >= 4 else 10
     mode = sys.argv[4].lower() if len(sys.argv) >= 5 else "standard"
+    num_top_models = int(sys.argv[5]) if len(sys.argv) >= 6 else None
     
     if mode not in ["standard", "fair"]:
         mode = "standard"
         
-    return forget_percentage, retain_drop_threshold, k_val, mode
+    return forget_percentage, retain_drop_threshold, k_val, mode, num_top_models
 
 
 def pct(x):
@@ -221,7 +224,7 @@ def build_aggregate_section(agg: dict, k_val: int) -> str:
     return f"""
     <div class="section">
         <div class="header-row">
-            <h2>Aggregate Relative Performance <span class="sub-label">all runs &nbsp;·&nbsp; K={k_val}</span></h2>
+            <h2>Aggregate Relative Performance <span class="sub-label">Filtered subset runs &nbsp;·&nbsp; K={k_val}</span></h2>
             <div class="toggle-group">
                 <button class="tgl active" data-stat="mean" onclick="updateAgg('mean')">Mean</button>
                 <button class="tgl" data-stat="median" onclick="updateAgg('median')">Median</button>
@@ -390,9 +393,9 @@ def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
 
     print("\n" + "="*70)
     print("LOSS LOG DEBUG")
-    print(f"  loss_df shape       : {ldf.shape}")
-    print(f"  loss_df methods     : {ldf['method'].unique().tolist() if 'method' in ldf.columns else 'NO METHOD COL'}")
-    print(f"  loss_df columns     : {ldf.columns.tolist()}")
+    print(f"  loss_df shape        : {ldf.shape}")
+    print(f"  loss_df methods      : {ldf['method'].unique().tolist() if 'method' in ldf.columns else 'NO METHOD COL'}")
+    print(f"  loss_df columns      : {ldf.columns.tolist()}")
     print("="*70)
 
     for _, s in selected_df.iterrows():
@@ -402,7 +405,6 @@ def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
         for col in match_cols:
             print(f"    {col:<20} = {repr(s.get(col, 'NOT IN SELECTED'))}")
 
-        # Check method rows first
         method_rows = ldf[ldf["method"] == method] if "method" in ldf.columns else pd.DataFrame()
         print(f"\n  Rows in loss log with method='{method}': {len(method_rows)}")
 
@@ -413,7 +415,6 @@ def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
         print("  Sample of loss log rows for this method (first 3):")
         print("  " + method_rows[match_cols].head(3).to_string().replace("\n", "\n  "))
 
-        # Step through each column and show how many rows survive
         mask = pd.Series(True, index=ldf.index)
         mask &= (ldf["method"] == method)
         print(f"\n  Mask after method filter         : {mask.sum()} rows")
@@ -435,7 +436,6 @@ def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
                   f"rows: {before}→{after}")
 
         print(f"\n  Final matching rows: {mask.sum()}")
-
     print("="*70 + "\n")
 
 def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
@@ -452,23 +452,15 @@ def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
     rows = len(selected_df)
     if rows == 0: return None
 
-    # Progressive relaxation order — drop least important constraints first
-    # Each entry is the set of columns to match on (always includes method)
     MATCH_STRATEGIES = [
-        # Exact
         ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
          "unlearn_lr", "unlearn_iters", "lambda_retain"],
-        # Drop lambda (fixed for Ye methods, may differ in log)
         ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
          "unlearn_lr", "unlearn_iters"],
-        # Drop unlearn_iters — closest unlearn config
         ["method", "train_lr", "gamma", "hidden_dim", "train_batch",
          "unlearn_lr"],
-        # Drop unlearn_lr too — any unlearn config for this train config
         ["method", "train_lr", "gamma", "hidden_dim", "train_batch"],
-        # Drop train_batch
         ["method", "train_lr", "gamma", "hidden_dim"],
-        # Absolute fallback — any run for this method
         ["method"],
     ]
 
@@ -578,10 +570,8 @@ def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
     )
     return fig
 
-
-
 def build_html(
-    forget_percentage, retain_drop_threshold, k_val, mode,
+    forget_percentage, retain_drop_threshold, k_val, mode, num_top_models,
     selected_df, selection_notes, agg,
     results_path, loss_log_path, pareto_fig, loss_fig,
 ) -> str:
@@ -607,6 +597,7 @@ def build_html(
     sidebar_controls_html = f"""<div class="pareto-sidebar-card"><h3>Controls</h3>{''.join(pareto_checkboxes)}</div>"""
 
     mode_display = 'Standard (Hard Threshold)' if mode == 'standard' else 'Fair (Custom Utility Score)'
+    filter_text = f"Top {num_top_models} Base Models (by {TOP_SELECTION_METRIC} at K={k_val})" if num_top_models else "All Base Models (Unfiltered)"
 
     math_block = r"""
     <div class="math-container" style="text-align: center; font-size: 1.1em; margin: 20px 0; color: #0f172a;">
@@ -630,7 +621,6 @@ def build_html(
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>Unlearning Dashboard — {forget_percentage}%</title>
     
-    <!-- Fonts & MathJax -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
@@ -716,6 +706,7 @@ def build_html(
     <div class="meta">
         <div><b>Folder:</b> {results_path.parent}</div>
         <div><b>Selection Logic ({mode.upper()}):</b> {'Hard cutoff (retain drop < ' + str(retain_drop_threshold) + ')' if mode == 'standard' else 'Ranked strictly by Custom Utility Score (threshold ignored).'}</div>
+        <div><b>Base Model Filter:</b> <span style="color:#0f172a; font-weight:600;">{filter_text}</span></div>
     </div>
 
     {agg_section}
@@ -817,7 +808,7 @@ setTimeout(resizePlots, 100);
 </html>"""
 
 def main():
-    forget_percentage, retain_drop_threshold, k_val, mode = parse_args()
+    forget_percentage, retain_drop_threshold, k_val, mode, num_top_models = parse_args()
 
     results_base = Path(f"C:/Bob/results/{forget_percentage}_percent")
     if not results_base.exists():
@@ -825,6 +816,30 @@ def main():
 
     results_df, train_df, loss_df, results_path, loss_log_path = load_inputs(results_base)
     results_df = prepare_results(results_df)
+
+    # Filter base models based on num_top_models if specified
+    if num_top_models is not None and not train_df.empty:
+        # Standardize train_df to match results_df types for exact merging
+        train_numeric_cols = ["K", "train_lr", "gamma", "hidden_dim", "train_batch", TOP_SELECTION_METRIC]
+        train_df = normalize_numeric(train_df, train_numeric_cols)
+        
+        rank_df = (
+            train_df[train_df["K"] == k_val]
+            .sort_values(
+                [TOP_SELECTION_METRIC, "train_lr", "gamma", "hidden_dim", "train_batch"],
+                ascending=[False, True, True, True, True],
+                kind="mergesort",
+            )
+            .reset_index(drop=True)
+        )
+        top_train_models = rank_df.head(num_top_models)
+        
+        # Merge to enforce strict filtering
+        keys = ["train_lr", "gamma", "hidden_dim", "train_batch"]
+        base_configs_df = top_train_models[keys].drop_duplicates()
+        
+        results_df = results_df.merge(base_configs_df, on=keys, how="inner")
+        print(f"Filtered tuning results to top {num_top_models} base models at K={k_val} (Remaining runs: {len(results_df)}).")
 
     agg = build_aggregate_data(results_df, k_val)
 
@@ -839,7 +854,6 @@ def main():
         raise ValueError(f"No valid runs could be processed for K={k_val}.")
 
     pareto_fig = build_pareto_figure(results_df, k_val)
-    # debug_loss_match(loss_df, selected_df)   # ← add this line
     loss_fig = build_loss_figure(loss_df, selected_df)
 
     html = build_html(
@@ -847,6 +861,7 @@ def main():
         retain_drop_threshold=retain_drop_threshold,
         k_val=k_val,
         mode=mode,
+        num_top_models=num_top_models,
         selected_df=selected_df,
         selection_notes=selection_notes,
         agg=agg,

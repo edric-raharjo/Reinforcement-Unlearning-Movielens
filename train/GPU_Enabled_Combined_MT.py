@@ -88,7 +88,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 
 SAVE_UNLEARNED_MODELS = True
 TOP_PERCENT = 0.125
-TOP_SELECTION_METRIC = "base_retain_Hit"
+TOP_SELECTION_METRIC = "base_combined_Hit"
 TOP_SELECTION_K = 10
 
 NUM_EPISODES = 10_000
@@ -1002,13 +1002,13 @@ def load_results():
     print("  No unlearn results — starting fresh")
     return []
 
-
-def eval_all_ks(net, ret_trajs, for_trajs):
+def eval_all_ks(net, ret_trajs, for_trajs, all_trajs):
     out = {}
     for K in KS:
         h_r, n_r = evaluate_policy(net, ret_trajs, build_state_fn, candidate_movies, K=K)
         h_f, n_f = evaluate_policy(net, for_trajs, build_state_fn, candidate_movies, K=K)
-        out[K] = (h_r, n_r, h_f, n_f)
+        h_c, n_c = evaluate_policy(net, all_trajs, build_state_fn, candidate_movies, K=K)
+        out[K] = (h_r, n_r, h_f, n_f, h_c, n_c)
     return out
 
 
@@ -1064,8 +1064,31 @@ else:
 train_prog_df, train_done_set = load_train_progress(train_configs)
 train_results = load_train_results()
 
+# --- BACKFILL CHECK: Test combined dataset if column is missing ---
+needs_save = False
+for r in train_results:
+    if "base_combined_Hit" not in r or pd.isna(r.get("base_combined_Hit")):
+        print(f"  [Backfill] Testing missing combined metric for tlr={r['train_lr']} g={r['gamma']} h={r['hidden_dim']} bs={r['train_batch']} K={r['K']}")
+        t_model_path = trained_model_path(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"])
+        if os.path.exists(t_model_path):
+            set_seed(make_seed(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"], "eval_backfill"))
+            net_bf = PolicyNet(state_dim, num_actions, hidden_dim=int(r["hidden_dim"])).to(DEVICE)
+            net_bf.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
+            net_bf.eval()
+            h_c, n_c = evaluate_policy(net_bf, trajectories_all, build_state_fn, candidate_movies, K=r["K"])
+            r["base_combined_Hit"] = h_c
+            r["base_combined_NDCG"] = n_c
+            needs_save = True
+        else:
+            print(f"  [Backfill] Warning: Model file missing for backfill: {t_model_path}")
+
+if needs_save:
+    pd.DataFrame(train_results).to_csv(TRAIN_RESULTS_PATH, index=False)
+    print("  ✓ Saved backfilled combined metrics.")
+# ------------------------------------------------------------------
+
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
-    if cfg_idx % NUM_WORKERS != WORKER_ID:  # ← this worker skips configs not assigned to it
+    if cfg_idx % NUM_WORKERS != WORKER_ID:
         continue
 
     set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "phase1"))
@@ -1091,7 +1114,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
         net.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
         train_time_s = float("nan")
     else:
-        print("  Trainingfrom scratch...")
+        print("  Training from scratch...")
         t0 = time.time()
         env_tr = MovieLensEnv(trajectories_all, build_state_fn, candidate_movies)
         net = PolicyNet(state_dim, num_actions, hidden_dim=hidden_dim).to(DEVICE)
@@ -1107,10 +1130,13 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
         torch.save(net.state_dict(), t_model_path)
         print(f"  ✓ Trained in {train_time_s:.1f}s")
 
-    baseline = eval_all_ks(net, retain_trajectories, forget_trajectories)
+    # Force seed before evaluation for maximum reproducibility
+    set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "eval"))
+    net.eval()
+    baseline = eval_all_ks(net, retain_trajectories, forget_trajectories, trajectories_all)
 
     for K in KS:
-        h_r, n_r, h_f, n_f = baseline[K]
+        h_r, n_r, h_f, n_f, h_c, n_c = baseline[K]
         train_results.append({
             "train_lr": t_lr,
             "gamma": gamma,
@@ -1123,24 +1149,11 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
             "base_retain_NDCG": n_r,
             "base_forget_Hit": h_f,
             "base_forget_NDCG": n_f,
+            "base_combined_Hit": h_c,
+            "base_combined_NDCG": n_c,
         })
 
-    pd.DataFrame(train_results).to_csv(TRAIN_RESULTS_PATH, index=False)
-    train_prog_df = mark_train_done(
-        train_prog_df, train_done_set, t_lr, gamma, hidden_dim, train_bs
-    )
-    h_sel, n_sel = baseline[TOP_SELECTION_K][0], baseline[TOP_SELECTION_K][1]
-    print(
-        f"  ✓ Saved | "
-        f"Retain Hit@{TOP_SELECTION_K}={h_sel:.4f} "
-        f"NDCG@{TOP_SELECTION_K}={n_sel:.4f}"
-    )
-
-    del net
-    torch.cuda.empty_cache()
-
 print(f"\n✓ Phase 1 complete — {len(train_done_set)} models trained / loaded")
-
 
 # ===========================================================================
 # PHASE 1 → PHASE 2 — Select top configs by retain metric

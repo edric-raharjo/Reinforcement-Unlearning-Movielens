@@ -431,18 +431,17 @@ stat_df = pd.DataFrame(stat_rows)
 stat_df.to_csv(DIAG_CSV, index=False)
 
 # ===========================================================================
-# PHASE 5 — HTML UI & Plot Generation
+# PHASE 5 — HTML UI & Plot Generation (Aligned with dashboard_fair)
 # ===========================================================================
 print("\n" + "="*60)
 print("PHASE 5 — Building HTML dashboard")
 print("="*60)
 
-BG      = "#f4f6f8"
+# Colors tailored for Plotly charts matching the clean light dashboard look
 PANEL   = "#ffffff"
-TEXT    = "#1f2937"
-ACCENT  = "#111827"
-GRIDCOL = "#e5e7eb"
-COLORS  = {"Damaged": "#EF4444", "OK": "#3B82F6", "Forget": "#F59E0B"} 
+TEXT    = "#0f172a"
+GRIDCOL = "#e2e8f0"
+COLORS  = {"Damaged": "#dc2626", "OK": "#2563eb", "Forget": "#d97706"} 
 
 all_states  = np.vstack([forget_mat, retain_mat])
 pca         = PCA(n_components=2, random_state=42)
@@ -484,6 +483,7 @@ def make_pca_fig():
         paper_bgcolor=PANEL, plot_bgcolor=PANEL, font_color=TEXT, height=650,
         margin=dict(l=40, r=40, t=60, b=40),
         legend=dict(bgcolor=PANEL, bordercolor=GRIDCOL, borderwidth=1),
+        font=dict(family="Inter, system-ui, sans-serif")
     )
     fig.update_xaxes(gridcolor=GRIDCOL, zerolinecolor=GRIDCOL)
     fig.update_yaxes(gridcolor=GRIDCOL, zerolinecolor=GRIDCOL)
@@ -532,6 +532,7 @@ def make_binned_distribution_fig(sim_col, title):
         height=650, barmode="group",
         margin=dict(l=40, r=40, t=60, b=40),
         legend=dict(bgcolor=PANEL, bordercolor=GRIDCOL, borderwidth=1),
+        font=dict(family="Inter, system-ui, sans-serif")
     )
     tick_vals = np.linspace(0.0, 1.0, SIMILARITY_BINS + 1)
     fig.update_xaxes(gridcolor=GRIDCOL, zerolinecolor=GRIDCOL, range=[-0.05, 1.05], tickvals=tick_vals)
@@ -569,7 +570,7 @@ for method in METHODS:
 summary_df = pd.DataFrame(summary_rows)
 
 def get_cell_style(col_name, val, row):
-    base_style = "padding:12px;border-bottom:1px solid #e5e7eb;color:#4b5563;"
+    base_style = ""
     
     def safe_float(v):
         try: return float(v)
@@ -607,7 +608,7 @@ def get_cell_style(col_name, val, row):
     return base_style
 
 def df_to_html(df, title=""):
-    header = "".join(f"<th style='padding:12px;text-align:left;background:#f9fafb;color:#374151;border-bottom:1px solid #e5e7eb;white-space:nowrap;font-weight:600;'>{c}</th>" for c in df.columns)
+    header = "".join(f"<th>{c}</th>" for c in df.columns)
     rows_html = ""
     for _, row in df.iterrows():
         cells = ""
@@ -617,10 +618,10 @@ def df_to_html(df, title=""):
             cells += f"<td style='{style}'>{val}</td>"
         rows_html += f"<tr>{cells}</tr>"
     return f"""
-    <div style='background:{PANEL};border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:24px;'>
-        <h3 style='margin:0 0 16px 0;font-size:18px;font-weight:600;color:{ACCENT};'>{title}</h3>
+    <div class="section">
+        <h2>{title}</h2>
         <div style='overflow-x:auto'>
-            <table style='width:100%;border-collapse:collapse;font-size:13px;text-align:left;'>
+            <table class="styled-table">
                 <thead><tr>{header}</tr></thead>
                 <tbody>{rows_html}</tbody>
             </table>
@@ -630,60 +631,99 @@ def df_to_html(df, title=""):
 
 def wrap_chart(title, pio_html):
     return f"""
-    <div style="background:{PANEL};border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:24px;">
-        <h3 style="margin:0 0 20px 0;font-size:18px;font-weight:600;color:{ACCENT};">{title}</h3>
+    <div class="section">
+        <h2>{title}</h2>
         {pio_html}
     </div>
     """
 
+# Modern CSS matching dashboard_fair.py
+css_block = """
+<style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; font-size: 15px; background: #f1f5f9; color: #0f172a; margin: 0; padding: 40px 0 72px; }
+    .container { max-width: 1440px; margin: 0 auto; padding: 0 64px; }
+    h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.6px; margin: 0 0 6px; }
+    h2 { font-size: 20px; font-weight: 700; margin: 0 0 14px; letter-spacing: -0.2px; }
+    .page-subtitle { color: #64748b; font-size: 15px; margin: 0 0 30px; }
+    .section, .meta { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 22px 26px; margin-bottom: 22px; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .meta { font-size: 14px; line-height: 2.1; }
+    .meta b { color: #334155; }
+    .styled-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .styled-table th, .styled-table td { border-bottom: 1px solid #e2e8f0; padding: 11px 10px; text-align: left; vertical-align: middle; }
+    .styled-table th { background: #f8fafc; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li { margin-bottom: 5px; font-size: 14px; color: #475569; }
+    p { margin: 0 0 8px 0; color: #475569; font-size: 14px; line-height: 1.6; }
+    code { font-family: monospace; background: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 13px; color: #dc2626; }
+</style>
+"""
+
 header_html = f"""
-<div style="margin-bottom: 24px;">
-    <h1 style="margin: 0 0 8px 0; font-size: 28px; font-weight: 700; color: {ACCENT};">Unlearning Dashboard</h1>
-    <p style="margin: 0; color: #6b7280; font-size: 14px;">{FORGET_PERCENTAGE}% forget split · K = {TOP_SELECTION_K}</p>
-</div>
-<div style="background:{PANEL};border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:24px;">
-    <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: {ACCENT};">🔬 Geometric Diagnosis</h3>
-    <p style="margin:0 0 8px 0; color: #4b5563; font-size: 14px;"><strong>Hypothesis:</strong> The retain users who lost performance (Damaged) are geometrically closer to the forget users in the shared feature space than the unaffected retain users (OK).</p>
-    <p style="margin:0 0 8px 0; color: #4b5563; font-size: 14px;"><strong>State representation:</strong> <code>build_state_fn</code> at trajectory midpoint = <code>[one-hot demographics | normalised genre preference vector]</code> (dim = {state_dim}).</p>
-    <ul style="margin:0 0 8px 0; color: #4b5563; font-size: 14px; padding-left:20px;">
-        <li><strong>Centroid similarity</strong> — cosine sim of each retain user to the <i>mean</i> forget user state.</li>
-        <li><strong>Pairwise max similarity</strong> — cosine sim to the <i>closest individual</i> forget user.</li>
-    </ul>
-    <p style="margin:0; color: #4b5563; font-size: 14px;"><strong>Statistical test:</strong> Mann-Whitney U (one-sided, H₁: damaged &gt; undamaged similarity). Pearson r measures the linear correlation between similarity and Hit delta.</p>
-</div>
+    <h1>Geometric Diagnosis Dashboard</h1>
+    <p class="page-subtitle">
+        {FORGET_PERCENTAGE}% forget split &nbsp;·&nbsp; K = {TOP_SELECTION_K} &nbsp;·&nbsp; Bins = {SIMILARITY_BINS}
+    </p>
+
+    <div class="meta">
+        <div><b>Folder:</b> C:/Bob/results/{FORGET_PERCENTAGE}_percent</div>
+        <div><b>Model Selection:</b> Top run per method complying with max retain drop &le; {MAX_RETAIN_DROP_PP} pp.</div>
+    </div>
+"""
+
+explanation_html = f"""
+    <div class="section">
+        <h2>🔬 Geometric Diagnosis Hypothesis</h2>
+        <p><strong>Hypothesis:</strong> The retain users who lost performance (Damaged) are geometrically closer to the forget users in the shared feature space than the unaffected retain users (OK).</p>
+        <p><strong>State representation:</strong> <code>build_state_fn</code> at trajectory midpoint = <code>[one-hot demographics | normalised genre preference vector]</code> (dim = {state_dim}).</p>
+        <ul>
+            <li><strong>Centroid similarity</strong> — cosine sim of each retain user to the <i>mean</i> forget user state.</li>
+            <li><strong>Pairwise max similarity</strong> — cosine sim to the <i>closest individual</i> forget user.</li>
+        </ul>
+        <p><strong>Statistical test:</strong> Mann-Whitney U (one-sided, H₁: damaged &gt; undamaged similarity). Pearson r measures the linear correlation between similarity and Hit delta.</p>
+    </div>
 """
 
 pearson_explanation_html = f"""
-<div style="background:{PANEL};border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:24px;border-left:4px solid #3B82F6;">
-    <h3 style="margin: 0 0 12px 0; font-size: 16px; font-weight: 600; color: {ACCENT};">💡 Understanding Pearson Correlation</h3>
-    <p style="margin:0 0 8px 0; color: #4b5563; font-size: 14px;">
-        <strong>Pearson r (Correlation Coefficient):</strong> Measures the linear relationship between a user's similarity to the forget group and their drop in performance (Hit Delta). 
-        Because a drop in performance is expressed as a <em>negative</em> delta, a <strong>negative r value</strong> means that <em>higher similarity</em> to the forget group correlates with a <em>larger performance drop</em>.
-    </p>
-    <p style="margin:0; color: #4b5563; font-size: 14px;">
-        <strong>Pearson p (p-value):</strong> Indicates if the observed correlation is statistically significant. 
-        <ul style="margin: 6px 0 0 0; padding-left: 20px; color: #4b5563; font-size: 14px;">
-            <li style="margin-bottom: 4px;"><strong>Significant (p &lt; 0.05):</strong> The correlation is strong enough that it is highly unlikely to be random chance. We can confidently say proximity to forget users affects performance.</li>
+    <div class="section" style="border-left: 4px solid #2563eb;">
+        <h2>💡 Understanding Pearson Correlation</h2>
+        <p>
+            <strong>Pearson r (Correlation Coefficient):</strong> Measures the linear relationship between a user's similarity to the forget group and their drop in performance (Hit Delta). 
+            Because a drop in performance is expressed as a <em>negative</em> delta, a <strong>negative r value</strong> means that <em>higher similarity</em> to the forget group correlates with a <em>larger performance drop</em>.
+        </p>
+        <p>
+            <strong>Pearson p (p-value):</strong> Indicates if the observed correlation is statistically significant. 
+        </p>
+        <ul>
+            <li><strong>Significant (p &lt; 0.05):</strong> The correlation is strong enough that it is highly unlikely to be random chance. We can confidently say proximity to forget users affects performance.</li>
             <li><strong>Not Significant (p &ge; 0.05):</strong> There is not enough statistical evidence to confirm a relationship.</li>
         </ul>
-    </p>
-</div>
+    </div>
 """
 
 html_parts = [
-    "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-    f"<title>Unlearning Dashboard — {FORGET_PERCENTAGE}%</title>",
-    f"<style>body{{background:{BG};font-family:'Inter', 'Segoe UI', sans-serif;margin:0;color:{TEXT};}} * {{box-sizing: border-box;}}</style>",
-    "</head><body>",
-    "<div style='max-width: 1400px; margin: 0 auto; padding: 32px;'>", 
+    "<!DOCTYPE html>",
+    "<html lang='en'>",
+    "<head>",
+    "    <meta charset='utf-8'/>",
+    "    <meta name='viewport' content='width=device-width,initial-scale=1'/>",
+    f"    <title>Unlearning Diagnosis — {FORGET_PERCENTAGE}%</title>",
+    "    <link rel='preconnect' href='https://fonts.googleapis.com'>",
+    "    <link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap' rel='stylesheet'>",
+    css_block,
+    "</head>",
+    "<body>",
+    "<div class='container'>", 
     header_html,
+    explanation_html,
     df_to_html(summary_df, "📊 Best Model Per Method — Summary"),
     df_to_html(stat_df,    "📈 Statistical Tests (Mann-Whitney U + Pearson r)"),
     pearson_explanation_html,
     wrap_chart("🗺 PCA Projection — State Space by Group", pio.to_html(fig_pca, full_html=False, include_plotlyjs="cdn")),
     wrap_chart("📊 Centroid Similarity Distributions (Binned)", pio.to_html(fig_dist_c, full_html=False, include_plotlyjs=False)),
     wrap_chart("📊 Pairwise Max Similarity Distributions (Binned)", pio.to_html(fig_dist_p, full_html=False, include_plotlyjs=False)),
-    "</div></body></html>",
+    "</div>",
+    "</body></html>",
 ]
 
 with open(DIAG_HTML, "w", encoding="utf-8") as f:
