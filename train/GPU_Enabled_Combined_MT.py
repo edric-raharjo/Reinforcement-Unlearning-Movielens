@@ -67,7 +67,7 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 # ---------------------------------------------------------------------------
 
 DATA_DIR = "C:/Bob/ml-1m"
-RESULTS_BASE = f"C:/Bob/results_deterministic/{FORGET_PERCENTAGE}_percent"
+RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR = os.path.join(RESULTS_BASE, "models")
 F_BUF_PATH = os.path.join(RESULTS_BASE, "forget_buffer.pkl")
 
