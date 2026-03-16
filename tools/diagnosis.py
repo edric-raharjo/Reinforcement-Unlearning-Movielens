@@ -42,8 +42,9 @@ if len(sys.argv) < 3:
 
 FORGET_PERCENTAGE    = int(sys.argv[1])
 MAX_RETAIN_DROP_PP   = float(sys.argv[2])          # e.g. 5.0  → < 5 pp
-RESULTS_CSV_NAME     = sys.argv[3] if len(sys.argv) > 3 else "tuning_full_results.csv"
-NUM_TOP_MODELS       = int(sys.argv[4]) if len(sys.argv) > 4 else None
+# RESULTS_CSV_NAME     = sys.argv[3] if len(sys.argv) > 3 else "tuning_full_results.csv"
+RESULTS_CSV_NAME     = "tuning_full_results.csv"
+NUM_TOP_MODELS       = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
 # Metric direction logic
 if DISTANCE_METRIC == "cosine":
@@ -81,7 +82,7 @@ TRAIN_PATH   = os.path.join(RESULTS_BASE, "train_phase_results.csv")
 DIAG_HTML    = os.path.join(ANALYZE_DIR, "diagnosis_dashboard.html")
 DIAG_CSV     = os.path.join(ANALYZE_DIR, "diagnosis_stats.csv")
 
-TOP_SELECTION_K = 10
+TOP_SELECTION_K = 5
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 METHODS         = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
 
@@ -89,6 +90,7 @@ print(f"Device        : {DEVICE}")
 print(f"Forget %      : {FORGET_PERCENTAGE}")
 print(f"Retain Limit  : < {MAX_RETAIN_DROP_PP} pp")
 print(f"Metric        : {DISTANCE_METRIC.upper()}")
+print(f"K             : {TOP_SELECTION_K}")
 
 # ---------------------------------------------------------------------------
 # Data loading & Feature engineering
@@ -325,10 +327,20 @@ if DISTANCE_METRIC == "mahalanobis":
 
 for method, d in per_method_data.items():
     core_uids = forget_core_uids_per_method.get(method, [])
-    if not core_uids: continue
+    df_r = d["retain"].copy()
+
+    # ✅ FIX: Initialize columns so Phase 5 never hits KeyError
+    df_r["centroid_val"]    = np.nan
+    df_r["pairwise_max_val"] = np.nan
+
+    if not core_uids:
+        per_method_data[method]["retain"] = df_r  # ✅ save back before skipping
+        continue
 
     core_idx = [forget_uid_to_idx[u] for u in core_uids if u in forget_uid_to_idx]
-    if not core_idx: continue
+    if not core_idx:
+        per_method_data[method]["retain"] = df_r  # ✅ save back before skipping
+        continue
 
     core_mat = forget_mat[core_idx]
     df_r = d["retain"].copy()
@@ -411,38 +423,87 @@ forget_coords = coords[:len(forget_mat)]
 retain_coords = coords[len(forget_mat):]
 
 def make_pca_fig():
-    fig = make_subplots(rows=2, cols=2, subplot_titles=[f"PCA — {m}" for m in METHODS], horizontal_spacing=0.08, vertical_spacing=0.12)
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=[f"PCA — {m}" for m in METHODS],
+        horizontal_spacing=0.08,
+        vertical_spacing=0.12
+    )
+
+    # --- Dummy damaged trace to guarantee legend entry ---
+    fig.add_trace(
+        go.Scatter(
+            x=[None], y=[None],  # no visible point
+            mode="markers",
+            marker=dict(color=COLORS["Damaged"], size=6, opacity=0.0),
+            name="Retain — Damaged",
+            legendgroup="Damaged",
+            showlegend=True,
+        ),
+        row=1, col=1,
+    )
+
     for idx, method in enumerate(METHODS):
         r, c = divmod(idx, 2)
         df_r = per_method_data[method]["retain"]
-        d_mask = np.array([dict(zip(df_r["uid"], df_r["damaged"])).get(u, False) for u in retain_uids])
+        d_map = dict(zip(df_r["uid"], df_r["damaged"]))
+        d_mask  = np.array([d_map.get(u, False) for u in retain_uids])
         ok_mask = ~d_mask
 
-        fig.add_trace(go.Scatter(
-            x=forget_coords[:, 0], y=forget_coords[:, 1], mode="markers", 
-            marker=dict(color=COLORS["Forget"], size=4, opacity=0.4), 
-            name="Forget users", 
-            legendgroup="Forget",  # <-- Added legendgroup
-            showlegend=(idx == 0)
-        ), row=r+1, col=c+1)
-        
-        fig.add_trace(go.Scatter(
-            x=retain_coords[ok_mask, 0], y=retain_coords[ok_mask, 1], mode="markers", 
-            marker=dict(color=COLORS["OK"], size=4, opacity=0.4), 
-            name="Retain — OK", 
-            legendgroup="OK",      # <-- Added legendgroup
-            showlegend=(idx == 0)
-        ), row=r+1, col=c+1)
-        
-        fig.add_trace(go.Scatter(
-            x=retain_coords[d_mask, 0], y=retain_coords[d_mask, 1], mode="markers", 
-            marker=dict(color=COLORS["Damaged"], size=6, opacity=0.85), 
-            name="Retain — Damaged", 
-            legendgroup="Damaged", # <-- Added legendgroup
-            showlegend=(idx == 0)
-        ), row=r+1, col=c+1)
+        fig.add_trace(
+            go.Scatter(
+                x=forget_coords[:, 0],
+                y=forget_coords[:, 1],
+                mode="markers",
+                marker=dict(color=COLORS["Forget"], size=4, opacity=0.4),
+                name="Forget users",
+                legendgroup="Forget",
+                showlegend=(idx == 0),
+            ),
+            row=r+1, col=c+1,
+        )
 
-    fig.update_layout(paper_bgcolor=PANEL, plot_bgcolor=PANEL, font_color=TEXT, height=650, margin=dict(l=40, r=40, t=60, b=40), legend=dict(bgcolor=PANEL, bordercolor=GRIDCOL, borderwidth=1), font=dict(family="Inter, system-ui, sans-serif"))
+        fig.add_trace(
+            go.Scatter(
+                x=retain_coords[ok_mask, 0],
+                y=retain_coords[ok_mask, 1],
+                mode="markers",
+                marker=dict(color=COLORS["OK"], size=4, opacity=0.4),
+                name="Retain — OK",
+                legendgroup="OK",
+                showlegend=(idx == 0),
+            ),
+            row=r+1, col=c+1,
+        )
+
+        # real damaged points, no need to showlegend again
+        fig.add_trace(
+            go.Scatter(
+                x=retain_coords[d_mask, 0],
+                y=retain_coords[d_mask, 1],
+                mode="markers",
+                marker=dict(color=COLORS["Damaged"], size=6, opacity=0.85),
+                name="Retain — Damaged",
+                legendgroup="Damaged",
+                showlegend=False,
+            ),
+            row=r+1, col=c+1,
+        )
+
+    fig.update_layout(
+        paper_bgcolor=PANEL,
+        plot_bgcolor=PANEL,
+        font_color=TEXT,
+        height=650,
+        margin=dict(l=40, r=40, t=60, b=40),
+        legend=dict(
+            bgcolor=PANEL,
+            bordercolor=GRIDCOL,
+            borderwidth=1,
+            groupclick="togglegroup",  # keep this from previous fix
+        ),
+        font=dict(family="Inter, system-ui, sans-serif"),
+    )
     return fig
 
 def make_binned_distribution_fig(sim_col, title):
@@ -510,6 +571,9 @@ for method in METHODS:
     n_ok = (~df_r["damaged"]).sum()
     dmg = df_r[df_r["damaged"]]
     ok = df_r[~df_r["damaged"]]
+    # ✅ FIX: Guard column existence AND n_d > 0
+    has_c = "centroid_val"    in df_r.columns and df_r["centroid_val"].notna().any()
+    has_p = "pairwise_max_val" in df_r.columns and df_r["pairwise_max_val"].notna().any()
     summary_rows.append({
         "Method": method,
         "Forget Drop (pp)": f"{d['row']['forget_drop']*100:.2f}",
@@ -517,10 +581,10 @@ for method in METHODS:
         "# Damaged Retain": int(n_d),
         "# OK Retain": int(n_ok),
         "Damaged %": f"{n_d/(n_d+n_ok)*100:.1f}%" if (n_d+n_ok) > 0 else "0.0%",
-        "Mean Centroid (Dmg)": f"{dmg['centroid_val'].mean():.4f}" if n_d > 0 else "N/A",
-        "Mean Centroid (OK)": f"{ok['centroid_val'].mean():.4f}",
-        "Mean Pairwise (Dmg)": f"{dmg['pairwise_max_val'].mean():.4f}" if n_d > 0 else "N/A",
-        "Mean Pairwise (OK)": f"{ok['pairwise_max_val'].mean():.4f}",
+        "Mean Centroid (Dmg)":  f"{dmg['centroid_val'].mean():.4f}"    if (n_d > 0 and has_c) else "N/A",
+        "Mean Centroid (OK)":   f"{ok['centroid_val'].mean():.4f}"     if has_c              else "N/A",
+        "Mean Pairwise (Dmg)":  f"{dmg['pairwise_max_val'].mean():.4f}" if (n_d > 0 and has_p) else "N/A",
+        "Mean Pairwise (OK)":   f"{ok['pairwise_max_val'].mean():.4f}" if has_p              else "N/A",
     })
 summary_df = pd.DataFrame(summary_rows)
 

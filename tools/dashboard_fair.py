@@ -19,6 +19,14 @@ PARETO_COLORS = {
     "New_Max": "#dc2626"
 }
 
+# Mapping for the side-by-side comparison chart
+METHOD_DISPLAY_NAMES = {
+    "Ye_ApxI": "Metode Terdahulu<br>(Single Env)",
+    "Ye_multi": "Metode Terdahulu<br>(Multi Env)",
+    "New_True_inf": "Metode yang<br>Diusulkan",
+    "New_Max": "Metode yang<br>Diusulkan (Max)"
+}
+
 TOP_SELECTION_METRIC = "base_retain_Hit"
 
 # =====================================================================
@@ -376,67 +384,78 @@ def build_pareto_figure(df: pd.DataFrame, k_val: int):
     fig.update_xaxes(autorange="reversed")
     return fig
 
-def debug_loss_match(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
-    """Drop this call into main() right before build_loss_figure() to diagnose."""
-    expected_numeric = [
-        "train_lr", "gamma", "hidden_dim", "train_batch",
-        "unlearn_lr", "unlearn_iters", "lambda_retain", "iter",
-        "loss_forget", "loss_retain", "loss_total"
-    ]
-    existing_numeric = [c for c in expected_numeric if c in loss_df.columns]
-    ldf = normalize_numeric(loss_df.copy(), existing_numeric)
+# =====================================================================
+# NEW COMPARISON BAR CHART GENERATOR
+# =====================================================================
+def build_comparison_figure(selected_df: pd.DataFrame, k_val: int, forget_pct: int):
+    if selected_df.empty: return None
 
-    match_cols = [
-        "method", "train_lr", "gamma", "hidden_dim",
-        "train_batch", "unlearn_lr", "unlearn_iters", "lambda_retain"
-    ]
+    # Retrieve data
+    methods_raw = selected_df["method"].tolist()
+    # Apply Indonesian mapping for display
+    display_methods = [METHOD_DISPLAY_NAMES.get(m, m) for m in methods_raw]
+    
+    rb = (selected_df["base_retain_Hit"] * 100).round(2).tolist()
+    ra = (selected_df["retain_Hit"] * 100).round(2).tolist()
+    fb = (selected_df["base_forget_Hit"] * 100).round(2).tolist()
+    fa = (selected_df["forget_Hit"] * 100).round(2).tolist()
 
-    print("\n" + "="*70)
-    print("LOSS LOG DEBUG")
-    print(f"  loss_df shape        : {ldf.shape}")
-    print(f"  loss_df methods      : {ldf['method'].unique().tolist() if 'method' in ldf.columns else 'NO METHOD COL'}")
-    print(f"  loss_df columns      : {ldf.columns.tolist()}")
-    print("="*70)
+    r_drop = [round(b - a, 2) for b, a in zip(rb, ra)]
+    f_drop = [round(b - a, 2) for b, a in zip(fb, fa)]
 
-    for _, s in selected_df.iterrows():
-        method = s.get("method", "???")
-        print(f"\n--- {method} ---")
-        print("  Selected row values:")
-        for col in match_cols:
-            print(f"    {col:<20} = {repr(s.get(col, 'NOT IN SELECTED'))}")
+    fig = go.Figure()
 
-        method_rows = ldf[ldf["method"] == method] if "method" in ldf.columns else pd.DataFrame()
-        print(f"\n  Rows in loss log with method='{method}': {len(method_rows)}")
+    # Styling Constants
+    c_base  = "#94a3b8"  # Slate 400
+    c_ret   = "#3b82f6"  # Blue 500 (Retain)
+    c_for   = "#f43f5e"  # Rose 500 (Forget)
 
-        if method_rows.empty:
-            print("  !! No rows at all for this method — check method name spelling")
-            continue
+    # Retain Before
+    fig.add_trace(go.Bar(
+        name='Retain Before', x=display_methods, y=rb,
+        marker_color=c_base, offsetgroup=0,
+        text=[f"Before:<br>{v}%" for v in rb], textposition='inside',
+        insidetextanchor='middle'
+    ))
+    
+    # Retain After
+    fig.add_trace(go.Bar(
+        name='Retain After', x=display_methods, y=ra,
+        marker_color=c_ret, offsetgroup=1,
+        text=[f"After:<br><b>{v}%</b><br>(-{d} pp)" for v, d in zip(ra, r_drop)], textposition='outside',
+    ))
 
-        print("  Sample of loss log rows for this method (first 3):")
-        print("  " + method_rows[match_cols].head(3).to_string().replace("\n", "\n  "))
+    # Forget Before
+    fig.add_trace(go.Bar(
+        name='Forget Before', x=display_methods, y=fb,
+        marker_color="#cbd5e1", offsetgroup=2,
+        text=[f"Before:<br>{v}%" for v in fb], textposition='inside',
+        insidetextanchor='middle'
+    ))
 
-        mask = pd.Series(True, index=ldf.index)
-        mask &= (ldf["method"] == method)
-        print(f"\n  Mask after method filter         : {mask.sum()} rows")
+    # Forget After
+    fig.add_trace(go.Bar(
+        name='Forget After', x=display_methods, y=fa,
+        marker_color=c_for, offsetgroup=3,
+        text=[f"After:<br><b>{v}%</b><br>(-{d} pp)" for v, d in zip(fa, f_drop)], textposition='outside',
+    ))
 
-        for col in match_cols[1:]:  # skip method
-            if col not in ldf.columns:
-                print(f"    {col:<20} → COLUMN MISSING in loss_df, skipping")
-                continue
-            val = s.get(col, np.nan)
-            before = mask.sum()
-            if pd.isna(val):
-                mask &= ldf[col].isna()
-            else:
-                mask &= ldf[col].fillna(-999).astype(float).round(5) == round(float(val), 5)
-            after = mask.sum()
-            log_vals = ldf.loc[ldf["method"] == method, col].dropna().unique()[:5]
-            print(f"    {col:<20} selected={repr(val):<12}  "
-                  f"log_vals={log_vals.tolist()}  "
-                  f"rows: {before}→{after}")
+    # Layout Customization
+    max_y = max(max(rb) if rb else [0], max(fb) if fb else [0]) + 15
+    fig.update_layout(
+        title=f"Side-by-Side Performance Comparison (Hit@{k_val}) — {forget_pct}% Split",
+        template="plotly_white",
+        font_family="Inter, system-ui, sans-serif",
+        margin=dict(l=60, r=60, t=80, b=60),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        bargap=0.2, 
+        bargroupgap=0.08,
+        height=650
+    )
+    fig.update_yaxes(title_text=f"Hit@{k_val} Score (%)", range=[0, max_y])
+    
+    return fig
 
-        print(f"\n  Final matching rows: {mask.sum()}")
-    print("="*70 + "\n")
 
 def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
     if loss_df.empty: return None
@@ -528,12 +547,7 @@ def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
         method = s.get("method", "???")
 
         if sub.empty:
-            print(f"  [loss chart] No rows found for {method} even with full relaxation.")
             continue
-
-        if strategy_label != "exact match":
-            print(f"  [loss chart] {method}: used {strategy_label} "
-                  f"({len(sub)} rows)")
 
         for ln in ["loss_forget", "loss_retain", "loss_total"]:
             if ln not in sub.columns:
@@ -573,7 +587,7 @@ def build_loss_figure(loss_df: pd.DataFrame, selected_df: pd.DataFrame):
 def build_html(
     forget_percentage, retain_drop_threshold, k_val, mode, num_top_models,
     selected_df, selection_notes, agg,
-    results_path, loss_log_path, pareto_fig, loss_fig,
+    results_path, loss_log_path, pareto_fig, loss_fig, comp_fig
 ) -> str:
     method_rows  = build_method_rows_html(selected_df, k_val)
     table_html   = build_summary_table(selected_df, k_val)
@@ -582,6 +596,7 @@ def build_html(
     
     pareto_div = plot(pareto_fig, output_type="div", include_plotlyjs="cdn") if pareto_fig is not None else '<div class="empty-box">No data available.</div>'
     loss_div   = plot(loss_fig, output_type="div", include_plotlyjs=False) if loss_fig is not None else '<div class="empty-box">No loss-log matching current runs found.</div>'
+    comp_div   = plot(comp_fig, output_type="div", include_plotlyjs=False) if comp_fig is not None else '<div class="empty-box">No comparison data available.</div>'
 
     pareto_checkboxes = []
     for method in METHODS:
@@ -738,6 +753,11 @@ def build_html(
     </div>
 
     <div class="section">
+        <h2>Before/After Performance Comparison</h2>
+        <div style="width: 100%; overflow: hidden;">{comp_div}</div>
+    </div>
+
+    <div class="section">
         <h2>Loss Curves</h2>
         <div style="width: 100%; overflow: hidden;">{loss_div}</div>
     </div>
@@ -792,8 +812,8 @@ function resizePlots() {{
     const paretoGraph = document.querySelector('#pareto-graph-wrapper .js-plotly-plot');
     if(paretoGraph) Plotly.Plots.resize(paretoGraph);
     
-    const lossGraphs = document.querySelectorAll('.section .js-plotly-plot');
-    lossGraphs.forEach(g => {{
+    const otherGraphs = document.querySelectorAll('.section .js-plotly-plot');
+    otherGraphs.forEach(g => {{
         if (g !== paretoGraph) Plotly.Plots.resize(g);
     }});
 }}
@@ -806,6 +826,7 @@ setTimeout(resizePlots, 100);
 </script>
 </body>
 </html>"""
+
 
 def main():
     forget_percentage, retain_drop_threshold, k_val, mode, num_top_models = parse_args()
@@ -855,6 +876,9 @@ def main():
 
     pareto_fig = build_pareto_figure(results_df, k_val)
     loss_fig = build_loss_figure(loss_df, selected_df)
+    
+    # Generate the new comparison figure using the dynamically filtered data
+    comp_fig = build_comparison_figure(selected_df, k_val, forget_percentage)
 
     html = build_html(
         forget_percentage=forget_percentage,
@@ -869,6 +893,7 @@ def main():
         loss_log_path=loss_log_path,
         pareto_fig=pareto_fig,
         loss_fig=loss_fig,
+        comp_fig=comp_fig, # Pass it to the HTML builder
     )
 
     out_path = results_base / "analyze" / "overall" / "dashboard.html"

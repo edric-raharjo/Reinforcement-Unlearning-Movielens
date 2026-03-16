@@ -14,3 +14,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
+
+# Hardcoded 
+tools/perf_dashboard.py
