@@ -116,7 +116,7 @@ def main():
     forget_pct  = int(sys.argv[1])
     NUM_WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 1  # ← NEW
 
-    base = Path(f"C:/Bob/results/{forget_pct}_percent")
+    base = Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_pct}_percent")
 
     print(f"Checking  : {base}")
     print(f"Workers   : {NUM_WORKERS}")          # ← NEW

@@ -67,7 +67,7 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 # ---------------------------------------------------------------------------
 
 DATA_DIR = "C:/Bob/ml-1m"
-RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
+RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR = os.path.join(RESULTS_BASE, "models")
 F_BUF_PATH = os.path.join(RESULTS_BASE, "forget_buffer.pkl")
 
@@ -87,7 +87,7 @@ TRAIN_RESULTS_MERGED  = os.path.join(RESULTS_BASE, "train_phase_results.csv")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 SAVE_UNLEARNED_MODELS = True
-TOP_PERCENT = 0.125
+TOP_PERCENT = 0.1
 TOP_SELECTION_METRIC = "base_combined_Hit"
 TOP_SELECTION_K = 10
 
@@ -1161,6 +1161,14 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
             "base_combined_Hit": h_c,
             "base_combined_NDCG": n_c,
         })
+    
+    pd.DataFrame(train_results).drop_duplicates(
+        subset=_TRAIN_KEY_COLS, keep="last"
+    ).to_csv(TRAIN_RESULTS_PATH, index=False)
+
+    train_prog_df = mark_train_done(
+        train_prog_df, train_done_set, t_lr, gamma, hidden_dim, train_bs
+    )
 
 print(f"\n✓ Phase 1 complete — {len(train_done_set)} models trained / loaded")
 
