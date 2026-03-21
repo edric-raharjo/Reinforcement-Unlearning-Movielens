@@ -26,7 +26,7 @@ LAMBDA_VALS = sorted(set(
 FIXED_METHODS = ["Ye_ApxI", "Ye_multi"]
 SWEPT_METHODS = ["New_True_inf", "New_Max"]
 
-TOP_PERCENT     = 0.05
+TOP_PERCENT     = 0.1
 TOP_SELECTION_K = 10
 EVAL_OVERHEAD_S = 20
 # ───────────────────────────────────────────────────────────────────────────
@@ -188,13 +188,14 @@ def main():
         print(f"\nNo K={TOP_SELECTION_K} rows yet -- unlearning not started.")
         return
 
+    print (k10.columns)
     rank_df = (
         k10.drop_duplicates(
             subset=["train_lr", "gamma", "hidden_dim", "train_batch"], keep="last"
         )
         .sort_values(
-            ["base_retain_Hit", "train_lr", "gamma", "hidden_dim", "train_batch"],
-            ascending=[False, True, True, True, True],
+            ["base_combined_Hit","base_retain_Hit", "train_lr", "gamma", "hidden_dim", "train_batch"],
+            ascending=[False, True, True, True, True, True],
             kind="mergesort",
         )
         .reset_index(drop=True)
