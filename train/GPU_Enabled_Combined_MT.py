@@ -1065,112 +1065,118 @@ else:
 
 if RUN_PHASE == 2:
     print("Skipping Phase 1 (--phase 2 specified)")
+    if NUM_WORKERS > 1:
+        train_results = pd.read_csv(TRAIN_RESULTS_MERGED).drop_duplicates(
+            subset=_TRAIN_KEY_COLS, keep="last"
+        ).to_dict("records")
+    else:
+        train_results = load_train_results()
 else:
     print(f"\n{'#' * 72}")
     print(f" PHASE 1 — Worker {WORKER_ID}/{NUM_WORKERS} | Training assigned configs")
     print(f"{'#' * 72}")
 
-train_prog_df, train_done_set = load_train_progress(train_configs)
-train_results = load_train_results()
+    train_prog_df, train_done_set = load_train_progress(train_configs)
+    train_results = load_train_results()
 
-# --- BACKFILL CHECK: Test combined dataset if column is missing ---
-needs_save = False
-for r in train_results:
-    if "base_combined_Hit" not in r or pd.isna(r.get("base_combined_Hit")):
-        print(f"  [Backfill] Testing missing combined metric for tlr={r['train_lr']} g={r['gamma']} h={r['hidden_dim']} bs={r['train_batch']} K={r['K']}")
-        t_model_path = trained_model_path(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"])
-        if os.path.exists(t_model_path):
-            set_seed(make_seed(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"], "eval_backfill"))
-            net_bf = PolicyNet(state_dim, num_actions, hidden_dim=int(r["hidden_dim"])).to(DEVICE)
-            net_bf.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
-            net_bf.eval()
-            h_c, n_c = evaluate_policy(net_bf, trajectories_all, build_state_fn, candidate_movies, K=r["K"])
-            r["base_combined_Hit"] = h_c
-            r["base_combined_NDCG"] = n_c
-            needs_save = True
-        else:
-            print(f"  [Backfill] Warning: Model file missing for backfill: {t_model_path}")
+    # --- BACKFILL CHECK: Test combined dataset if column is missing ---
+    needs_save = False
+    for r in train_results:
+        if "base_combined_Hit" not in r or pd.isna(r.get("base_combined_Hit")):
+            print(f"  [Backfill] Testing missing combined metric for tlr={r['train_lr']} g={r['gamma']} h={r['hidden_dim']} bs={r['train_batch']} K={r['K']}")
+            t_model_path = trained_model_path(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"])
+            if os.path.exists(t_model_path):
+                set_seed(make_seed(r["train_lr"], r["gamma"], r["hidden_dim"], r["train_batch"], "eval_backfill"))
+                net_bf = PolicyNet(state_dim, num_actions, hidden_dim=int(r["hidden_dim"])).to(DEVICE)
+                net_bf.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
+                net_bf.eval()
+                h_c, n_c = evaluate_policy(net_bf, trajectories_all, build_state_fn, candidate_movies, K=r["K"])
+                r["base_combined_Hit"] = h_c
+                r["base_combined_NDCG"] = n_c
+                needs_save = True
+            else:
+                print(f"  [Backfill] Warning: Model file missing for backfill: {t_model_path}")
 
-if needs_save:
-    pd.DataFrame(train_results).to_csv(TRAIN_RESULTS_PATH, index=False)
-    print("  ✓ Saved backfilled combined metrics.")
-# ------------------------------------------------------------------
+    if needs_save:
+        pd.DataFrame(train_results).to_csv(TRAIN_RESULTS_PATH, index=False)
+        print("  ✓ Saved backfilled combined metrics.")
+    # ------------------------------------------------------------------
 
-for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
-    if cfg_idx % NUM_WORKERS != WORKER_ID:
-        continue
+    for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(train_configs):
+        if cfg_idx % NUM_WORKERS != WORKER_ID:
+            continue
 
-    set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "phase1"))
-    cfg_key = (t_lr, gamma, hidden_dim, train_bs)
+        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "phase1"))
+        cfg_key = (t_lr, gamma, hidden_dim, train_bs)
 
-    if cfg_key in train_done_set:
+        if cfg_key in train_done_set:
+            print(
+                f" [SKIP {cfg_idx + 1:>3}/{len(train_configs)}] "
+                f"tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — already done"
+            )
+            continue
+
         print(
-            f" [SKIP {cfg_idx + 1:>3}/{len(train_configs)}] "
-            f"tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — already done"
+            f"\n [{cfg_idx + 1:>3}/{len(train_configs)}] "
+            f"train_lr={t_lr} gamma={gamma} hidden={hidden_dim} batch={train_bs}"
         )
-        continue
 
-    print(
-        f"\n [{cfg_idx + 1:>3}/{len(train_configs)}] "
-        f"train_lr={t_lr} gamma={gamma} hidden={hidden_dim} batch={train_bs}"
-    )
+        t_model_path = trained_model_path(t_lr, gamma, hidden_dim, train_bs)
 
-    t_model_path = trained_model_path(t_lr, gamma, hidden_dim, train_bs)
+        if os.path.exists(t_model_path):
+            print("  ↩ Loading existing model...")
+            net = PolicyNet(state_dim, num_actions, hidden_dim=hidden_dim).to(DEVICE)
+            net.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
+            train_time_s = float("nan")
+        else:
+            print("  Training from scratch...")
+            t0 = time.time()
+            env_tr = MovieLensEnv(trajectories_all, build_state_fn, candidate_movies)
+            net = PolicyNet(state_dim, num_actions, hidden_dim=hidden_dim).to(DEVICE)
+            opt = torch.optim.Adam(net.parameters(), lr=t_lr)
+            train_policy_gradient_batched(
+                env_tr, net, opt,
+                num_episodes=NUM_EPISODES,
+                gamma=gamma,
+                max_steps_per_ep=MAX_STEPS,
+                batch_size=train_bs,
+            )
+            train_time_s = round(time.time() - t0, 2)
+            torch.save(net.state_dict(), t_model_path)
+            print(f"  ✓ Trained in {train_time_s:.1f}s")
 
-    if os.path.exists(t_model_path):
-        print("  ↩ Loading existing model...")
-        net = PolicyNet(state_dim, num_actions, hidden_dim=hidden_dim).to(DEVICE)
-        net.load_state_dict(torch.load(t_model_path, map_location=DEVICE))
-        train_time_s = float("nan")
-    else:
-        print("  Training from scratch...")
-        t0 = time.time()
-        env_tr = MovieLensEnv(trajectories_all, build_state_fn, candidate_movies)
-        net = PolicyNet(state_dim, num_actions, hidden_dim=hidden_dim).to(DEVICE)
-        opt = torch.optim.Adam(net.parameters(), lr=t_lr)
-        train_policy_gradient_batched(
-            env_tr, net, opt,
-            num_episodes=NUM_EPISODES,
-            gamma=gamma,
-            max_steps_per_ep=MAX_STEPS,
-            batch_size=train_bs,
+        # Force seed before evaluation for maximum reproducibility
+        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "eval"))
+        net.eval()
+        baseline = eval_all_ks(net, retain_trajectories, forget_trajectories, trajectories_all)
+
+        for K in KS:
+            h_r, n_r, h_f, n_f, h_c, n_c = baseline[K]
+            train_results.append({
+                "train_lr": t_lr,
+                "gamma": gamma,
+                "hidden_dim": hidden_dim,
+                "train_batch": train_bs,
+                "train_time_s": train_time_s,
+                "trained_model_path": t_model_path,
+                "K": K,
+                "base_retain_Hit": h_r,
+                "base_retain_NDCG": n_r,
+                "base_forget_Hit": h_f,
+                "base_forget_NDCG": n_f,
+                "base_combined_Hit": h_c,
+                "base_combined_NDCG": n_c,
+            })
+        
+        pd.DataFrame(train_results).drop_duplicates(
+            subset=_TRAIN_KEY_COLS, keep="last"
+        ).to_csv(TRAIN_RESULTS_PATH, index=False)
+
+        train_prog_df = mark_train_done(
+            train_prog_df, train_done_set, t_lr, gamma, hidden_dim, train_bs
         )
-        train_time_s = round(time.time() - t0, 2)
-        torch.save(net.state_dict(), t_model_path)
-        print(f"  ✓ Trained in {train_time_s:.1f}s")
 
-    # Force seed before evaluation for maximum reproducibility
-    set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, "eval"))
-    net.eval()
-    baseline = eval_all_ks(net, retain_trajectories, forget_trajectories, trajectories_all)
-
-    for K in KS:
-        h_r, n_r, h_f, n_f, h_c, n_c = baseline[K]
-        train_results.append({
-            "train_lr": t_lr,
-            "gamma": gamma,
-            "hidden_dim": hidden_dim,
-            "train_batch": train_bs,
-            "train_time_s": train_time_s,
-            "trained_model_path": t_model_path,
-            "K": K,
-            "base_retain_Hit": h_r,
-            "base_retain_NDCG": n_r,
-            "base_forget_Hit": h_f,
-            "base_forget_NDCG": n_f,
-            "base_combined_Hit": h_c,
-            "base_combined_NDCG": n_c,
-        })
-    
-    pd.DataFrame(train_results).drop_duplicates(
-        subset=_TRAIN_KEY_COLS, keep="last"
-    ).to_csv(TRAIN_RESULTS_PATH, index=False)
-
-    train_prog_df = mark_train_done(
-        train_prog_df, train_done_set, t_lr, gamma, hidden_dim, train_bs
-    )
-
-print(f"\n✓ Phase 1 complete — {len(train_done_set)} models trained / loaded")
+    print(f"\n✓ Phase 1 complete — {len(train_done_set)} models trained / loaded")
 
 # ===========================================================================
 # PHASE 1 → PHASE 2 — Select top configs by retain metric
@@ -1203,10 +1209,40 @@ all_top_configs = [
     for _, row in top_configs_df.iterrows()
 ]
 
-# Partition top configs across workers (round-robin keeps load balanced)
-top_configs = [cfg for i, cfg in enumerate(all_top_configs) if i % NUM_WORKERS == WORKER_ID]
-print(f"Worker {WORKER_ID} handling {len(top_configs)}/{len(all_top_configs)} top configs")
 
+def load_legacy_unlearn_progress():
+    legacy_path = os.path.join(RESULTS_BASE, "progress.csv")
+    if os.path.exists(legacy_path):
+        df = pd.read_csv(legacy_path)
+        done = set(tuple(r) for r in df[_PROG_COLS].itertuples(index=False))
+        print(f"✓ Legacy unlearn progress: {len(done):,} combos done")
+        return done
+    return set()
+
+def config_fully_done(cfg, done_set):
+    t_lr, gamma, hidden_dim, train_bs = cfg
+    fixed_methods = ["Ye_ApxI", "Ye_multi"]
+    sweep_methods = ["New_True_inf", "New_Max"]
+
+    all_done_fixed = all(
+        (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, 1.0, method) in done_set
+        for u_lr, u_iters in unlearn_configs
+        for method in fixed_methods
+    )
+    all_done_swept = all(
+        (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method) in done_set
+        for u_lr, u_iters in unlearn_configs
+        for lam in LAMBDA_VALS
+        for method in sweep_methods
+    )
+    return all_done_fixed and all_done_swept
+
+# Partition top configs across workers (round-robin keeps load balanced)
+legacy_done_set = load_legacy_unlearn_progress()
+remaining_top_configs = [cfg for cfg in all_top_configs if not config_fully_done(cfg, legacy_done_set)]
+
+top_configs = [cfg for i, cfg in enumerate(remaining_top_configs) if i % NUM_WORKERS == WORKER_ID]
+print(f"Worker {WORKER_ID} handling {len(top_configs)}/{len(remaining_top_configs)} remaining top configs")
 
 print(f"\n{'#' * 72}")
 print(
@@ -1225,6 +1261,7 @@ for i, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
 # ===========================================================================
 # PHASE 2 — Unlearning sweep
 # ===========================================================================
+
 
 progress_df, done_set = load_progress()
 all_results = load_results()

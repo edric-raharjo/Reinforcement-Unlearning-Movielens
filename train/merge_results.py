@@ -4,7 +4,7 @@ import glob
 import pandas as pd
 
 FORGET_PERCENTAGE = int(sys.argv[1])
-RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
+RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results_demography/{FORGET_PERCENTAGE}_percent"
 
 _TRAIN_KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch", "K"]
 _KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch",
