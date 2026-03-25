@@ -1288,6 +1288,8 @@ progress_df, done_set = load_progress()
 all_results = load_results()
 unlearn_loss_log_rows = load_unlearn_loss_log()
 
+train_results = all_train_df.to_dict("records")
+
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
 
     fixed_methods = ["Ye_ApxI", "Ye_multi"]
@@ -1319,13 +1321,14 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
     )
     print(f"{'=' * 72}")
 
+    # FIX: Use safe float/int matching to avoid pandas precision issues
     prev = [
         r for r in train_results
         if (
-            r["train_lr"] == t_lr
-            and r["gamma"] == gamma
-            and r["hidden_dim"] == hidden_dim
-            and r["train_batch"] == train_bs
+            abs(float(r["train_lr"]) - float(t_lr)) < 1e-6
+            and abs(float(r["gamma"]) - float(gamma)) < 1e-6
+            and int(r["hidden_dim"]) == int(hidden_dim)
+            and int(r["train_batch"]) == int(train_bs)
         )
     ]
     train_time_s = prev[0]["train_time_s"] if prev else float("nan")
@@ -1336,7 +1339,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
     print(f" ↩ Loaded {t_model_path}")
 
     baseline = {
-        r["K"]: (
+        int(float(r["K"])): (
             r["base_retain_Hit"],
             r["base_retain_NDCG"],
             r["base_forget_Hit"],
@@ -1344,10 +1347,10 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         )
         for r in train_results
         if (
-            r["train_lr"] == t_lr
-            and r["gamma"] == gamma
-            and r["hidden_dim"] == hidden_dim
-            and r["train_batch"] == train_bs
+            abs(float(r["train_lr"]) - float(t_lr)) < 1e-6
+            and abs(float(r["gamma"]) - float(gamma)) < 1e-6
+            and int(r["hidden_dim"]) == int(hidden_dim)
+            and int(r["train_batch"]) == int(train_bs)
         )
     }
 

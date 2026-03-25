@@ -4,7 +4,13 @@ import glob
 import pandas as pd
 
 FORGET_PERCENTAGE = int(sys.argv[1])
-RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results_demography/{FORGET_PERCENTAGE}_percent"
+# FIX: Make the DEMO argument optional so it doesn't crash if omitted
+DEMO = int(sys.argv[2]) 
+DEMO = (DEMO == 2)
+if DEMO:
+      RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results_demography/{FORGET_PERCENTAGE}_percent"
+else:
+      RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 
 _TRAIN_KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch", "K"]
 _KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch",

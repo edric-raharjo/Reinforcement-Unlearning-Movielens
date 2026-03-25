@@ -1202,8 +1202,11 @@ rank_df = (
     )
     .reset_index(drop=True)
 )
-n_top = max(1, int(len(rank_df) * TOP_PERCENT))
+
+# Calculate top percentage based on the total expected configs (81), not the length of rank_df
+n_top = max(1, int(round(len(train_configs) * TOP_PERCENT)))
 top_configs_df = rank_df.head(n_top)
+
 all_top_configs = [
     (row["train_lr"], row["gamma"], int(row["hidden_dim"]), int(row["train_batch"]))
     for _, row in top_configs_df.iterrows()
@@ -1237,12 +1240,11 @@ def config_fully_done(cfg, done_set):
     )
     return all_done_fixed and all_done_swept
 
-# Partition top configs across workers (round-robin keeps load balanced)
+# Shared Dynamic Queue: Give all workers the full list of remaining configs
 legacy_done_set = load_legacy_unlearn_progress()
-remaining_top_configs = [cfg for cfg in all_top_configs if not config_fully_done(cfg, legacy_done_set)]
+top_configs = [cfg for cfg in all_top_configs if not config_fully_done(cfg, legacy_done_set)]
 
-top_configs = [cfg for i, cfg in enumerate(remaining_top_configs) if i % NUM_WORKERS == WORKER_ID]
-print(f"Worker {WORKER_ID} handling {len(top_configs)}/{len(remaining_top_configs)} remaining top configs")
+print(f"Worker {WORKER_ID} sharing a dynamic queue of {len(top_configs)} remaining top configs")
 
 print(f"\n{'#' * 72}")
 print(
@@ -1250,24 +1252,31 @@ print(
     f"({TOP_PERCENT * 100:.0f}% by {TOP_SELECTION_METRIC}@{TOP_SELECTION_K})"
 )
 print(f"{'#' * 72}")
-for i, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
-    score = top_configs_df.iloc[i][TOP_SELECTION_METRIC]
-    print(
-        f"  {i + 1}. tlr={t_lr} g={gamma} h={hidden_dim} "
-        f"bs={train_bs} | score={score:.4f}"
-    )
-
 
 # ===========================================================================
 # PHASE 2 — Unlearning sweep
 # ===========================================================================
 
-
 progress_df, done_set = load_progress()
 all_results = load_results()
 unlearn_loss_log_rows = load_unlearn_loss_log()
 
+# Create a locks directory to prevent workers from picking the same config
+LOCKS_DIR = os.path.join(RESULTS_BASE, "locks")
+os.makedirs(LOCKS_DIR, exist_ok=True)
+
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
+
+    # --- ATOMIC LOCK (Dynamic Queue mechanism) ---
+    lock_file = os.path.join(LOCKS_DIR, f"lock_{t_lr}_{gamma}_{hidden_dim}_{train_bs}.txt")
+    try:
+        # os.O_EXCL ensures this fails if the file already exists (claimed by other worker)
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        print(f"\n[{cfg_idx + 1}/{len(top_configs)}] tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — claimed by another worker. Skipping.")
+        continue
+    # ---------------------------------------------
 
     fixed_methods = ["Ye_ApxI", "Ye_multi"]
     sweep_methods = ["New_True_inf", "New_Max"]

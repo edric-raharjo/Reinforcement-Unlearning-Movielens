@@ -29,6 +29,7 @@ SWEPT_METHODS = ["New_True_inf", "New_Max"]
 TOP_PERCENT     = 0.1
 TOP_SELECTION_K = 10
 EVAL_OVERHEAD_S = 20
+
 # ───────────────────────────────────────────────────────────────────────────
 
 _TRAIN_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs"]
@@ -74,6 +75,7 @@ def pretty_td(seconds):
 
 
 def load_csv_glob(base, merged_name, worker_pattern, dedup_cols=None):
+    """Load merged OR worker files (existing logic - keep for train results)"""
     merged_path = base / merged_name
     if merged_path.exists():
         df = pd.read_csv(merged_path)
@@ -89,6 +91,21 @@ def load_csv_glob(base, merged_name, worker_pattern, dedup_cols=None):
         return df, f"{len(worker_files)} worker file(s) ({len(df):,} rows)"
 
     return pd.DataFrame(), "not found"
+
+
+def load_merged_progress(base):
+    """FIXED: Properly merge ALL progress files AND filter to top configs only"""
+    all_prog_paths = [base / "progress.csv"] + list(base.glob("progress_w*.csv"))
+    all_prog_files = [p for p in all_prog_paths if p.exists()]
+    
+    if not all_prog_files:
+        return pd.DataFrame(), "no files"
+    
+    # Load and deduplicate ALL progress
+    prog_df = pd.concat([pd.read_csv(f) for f in all_prog_files], ignore_index=True)
+    prog_df = prog_df.drop_duplicates(subset=_PROG_COLS, keep="last")
+    
+    return prog_df, f"{len(all_prog_files)} files ({len(prog_df):,} total rows)"
 
 
 def count_train_progress(base):
@@ -109,17 +126,27 @@ def count_train_progress(base):
 def main():
     if len(sys.argv) < 2:
         raise ValueError(
-            "Usage: python progress_check.py <forget_percentage> [num_workers]\n"
-            "Example: python progress_check.py 20 4"
+            "Usage: python progress_check.py <forget_percentage> [num_workers] [mode]\n"
+            "Example: python progress_check.py 2 2 demo"
         )
 
     forget_pct  = int(sys.argv[1])
-    NUM_WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 1  # ← NEW
+    NUM_WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    
+    # Check for the demo flag (accepts "demo" or "2" based on your other scripts)
+    mode = str(sys.argv[3]).lower() if len(sys.argv) > 3 else "normal"
+    is_demo = (mode == "demo" or mode == "2")
 
-    base = Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_pct}_percent")
+    if is_demo:
+        base = Path(f"D:/Bob_Skripsi_Do Not Delete/results_demography/{forget_pct}_percent")
+        mode_label = "DEMO (results_demography)"
+    else:
+        base = Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_pct}_percent")
+        mode_label = "NORMAL (results)"
 
     print(f"Checking  : {base}")
-    print(f"Workers   : {NUM_WORKERS}")          # ← NEW
+    print(f"Workers   : {NUM_WORKERS}")
+    print(f"Mode      : {mode_label}")
     print()
     if not base.exists():
         print("  Folder does not exist yet.")
@@ -166,7 +193,6 @@ def main():
     remaining_train = max(0, total_train - done_train)
     if remaining_train > 0:
         if not np.isnan(avg_train_time):
-            # ← Workers train configs in parallel (round-robin assignment)
             eta_s    = (remaining_train * avg_train_time) / NUM_WORKERS
             eta_when = datetime.now() + timedelta(seconds=eta_s)
             print(f"ETA (training done)  : {pretty_td(eta_s)} across {NUM_WORKERS} workers "
@@ -188,35 +214,36 @@ def main():
         print(f"\nNo K={TOP_SELECTION_K} rows yet -- unlearning not started.")
         return
 
-    print (k10.columns)
+    print(k10.columns)
     rank_df = (
         k10.drop_duplicates(
             subset=["train_lr", "gamma", "hidden_dim", "train_batch"], keep="last"
         )
         .sort_values(
-            ["base_combined_Hit","base_retain_Hit", "train_lr", "gamma", "hidden_dim", "train_batch"],
+            ["base_combined_Hit", "base_retain_Hit", "train_lr", "gamma", "hidden_dim", "train_batch"],
             ascending=[False, True, True, True, True, True],
             kind="mergesort",
         )
         .reset_index(drop=True)
     )
-    n_top          = max(1, int(len(rank_df) * TOP_PERCENT))
+    # Calculate top percentage based on the total expected configs (e.g., 81 * 0.1 = 8.1 -> rounded to 8)
+    n_top = max(1, int(round(total_train * TOP_PERCENT)))
     top_configs_df = rank_df.head(n_top).copy().reset_index(drop=True)
 
-    print(f"\nTop configs selected (top {TOP_PERCENT*100:.0f}% of {len(rank_df)}) : {n_top}")
+    print(f"\nTop configs selected (top {TOP_PERCENT*100:.0f}% of {total_train}) : {n_top}")
     for i, row in top_configs_df.iterrows():
-        assigned_worker = i % NUM_WORKERS  # ← show which worker owns this model
+        assigned_worker = i % NUM_WORKERS
         print(
             f"  Model {i+1} [worker {assigned_worker}]: "
             f"train_lr={fmt_float(row['train_lr'])}, "
             f"gamma={fmt_float(row['gamma'])}, "
             f"hidden_dim={int(row['hidden_dim'])}, "
             f"train_batch={int(row['train_batch'])}, "
-            f"base_retain_Hit@{TOP_SELECTION_K}={row['base_retain_Hit']:.4f}"
+            f"base_combined_Hit@{TOP_SELECTION_K}={row['base_combined_Hit']:.4f}"
         )
 
     # ------------------------------------------------------------------ #
-    # PHASE 2 -- Unlearning (global)                                       #
+    # PHASE 2 -- Unlearning (FILTERED to top configs only)                #
     # ------------------------------------------------------------------ #
     print()
     print("=" * 60)
@@ -232,23 +259,33 @@ def main():
     )
     print(f"Total combos expected  : {total_expected}  ({n_top} models x {COMBOS_PER_CFG})")
 
-    ul_prog_df, ul_src = load_csv_glob(
-        base,
-        "progress.csv",
-        "progress_w*.csv",
-        dedup_cols=_PROG_COLS,
-    )
-
+    # FIXED: Use proper merged progress
+    ul_prog_df, ul_src = load_merged_progress(base)
+    
     if ul_prog_df.empty:
         print("No progress files yet -- unlearning not started.")
         return
 
     print(f"Unlearn progress source : {ul_src}")
-    done_total = len(ul_prog_df)
+    
+    # FIXED: Filter progress to ONLY top configs
+    top_mask = np.zeros(len(ul_prog_df), dtype=bool)
+    for _, row in top_configs_df.iterrows():
+        mask = (
+            (ul_prog_df["t_lr"] == row["train_lr"]) &
+            (ul_prog_df["gamma"] == row["gamma"]) &
+            (ul_prog_df["hidden_dim"] == row["hidden_dim"]) &
+            (ul_prog_df["train_bs"] == row["train_batch"])
+        )
+        top_mask |= mask
+    
+    ul_prog_top_df = ul_prog_df[top_mask].copy()
+    done_total = len(ul_prog_top_df)
+    
     frac_total = done_total / total_expected if total_expected > 0 else 0.0
     print(
         f"Total combos finished  : {done_total}/{total_expected} "
-        f"({frac_total*100:.1f}%) {make_bar(frac_total)}"
+        f"({frac_total*100:.1f}%) {make_bar(frac_total)}  [FILTERED to top {n_top} configs]"
     )
 
     res_df, res_src = load_csv_glob(
@@ -274,9 +311,7 @@ def main():
 
     remaining_global = max(0, total_expected - done_total)
     if remaining_global > 0 and not np.isnan(avg_ul_global):
-        # ← Workers run top configs in parallel (round-robin), so wall-clock
-        #   time is total_remaining / num_workers (assuming balanced load)
-        eta_s    = (remaining_global * avg_ul_global) / NUM_WORKERS
+        eta_s = (remaining_global * avg_ul_global) / NUM_WORKERS
         eta_when = datetime.now() + timedelta(seconds=eta_s)
         print(f"ETA (all unlearning done) : {pretty_td(eta_s)} across {NUM_WORKERS} workers "
               f"(~ {eta_when:%Y-%m-%d %H:%M:%S})")
@@ -294,37 +329,33 @@ def main():
     print("=" * 60)
 
     now = datetime.now()
-
-    # ← Each worker processes its assigned models sequentially.
-    #   worker_cursors[w] tracks how many seconds worker w still has ahead.
-    #   Model i is assigned to worker (i % NUM_WORKERS) — same round-robin
-    #   as GPU_Enabled_Combined.py's Phase 2 loop.
     worker_cursors = {w: 0.0 for w in range(NUM_WORKERS)}
 
     for idx, row in top_configs_df.iterrows():
-        t_lr        = row["train_lr"]
-        gamma       = row["gamma"]
-        hidden_dim  = row["hidden_dim"]
-        train_bs    = row["train_batch"]
-        this_worker = idx % NUM_WORKERS  # ← which worker owns this model
+        t_lr = row["train_lr"]
+        gamma = row["gamma"]
+        hidden_dim = row["hidden_dim"]
+        train_bs = row["train_batch"]
+        this_worker = idx % NUM_WORKERS
 
-        mask_prog = (
-            (ul_prog_df["t_lr"]         == t_lr)
-            & (ul_prog_df["gamma"]      == gamma)
-            & (ul_prog_df["hidden_dim"] == hidden_dim)
-            & (ul_prog_df["train_bs"]   == train_bs)
+        # FIXED: Count only this specific model's combos
+        mask_model = (
+            (ul_prog_df["t_lr"] == t_lr) &
+            (ul_prog_df["gamma"] == gamma) &
+            (ul_prog_df["hidden_dim"] == hidden_dim) &
+            (ul_prog_df["train_bs"] == train_bs)
         )
-        done_model      = int(mask_prog.sum())
-        frac_model      = done_model / COMBOS_PER_CFG if COMBOS_PER_CFG > 0 else 0.0
+        done_model = int(mask_model.sum())
+        frac_model = done_model / COMBOS_PER_CFG if COMBOS_PER_CFG > 0 else 0.0
         remaining_model = max(0, COMBOS_PER_CFG - done_model)
 
         avg_ul_model = np.nan
         if not res_df.empty and "unlearn_time_s" in res_df.columns:
             mask_res = (
-                (res_df["train_lr"]      == t_lr)
-                & (res_df["gamma"]       == gamma)
-                & (res_df["hidden_dim"]  == hidden_dim)
-                & (res_df["train_batch"] == train_bs)
+                (res_df["train_lr"] == t_lr) &
+                (res_df["gamma"] == gamma) &
+                (res_df["hidden_dim"] == hidden_dim) &
+                (res_df["train_batch"] == train_bs)
             )
             times_m = pd.to_numeric(
                 res_df.loc[mask_res, "unlearn_time_s"], errors="coerce"
@@ -333,7 +364,7 @@ def main():
                 avg_ul_model = times_m.mean() + EVAL_OVERHEAD_S
 
         eff_avg = avg_ul_model if not np.isnan(avg_ul_model) else avg_ul_global
-        src     = "per-model" if not np.isnan(avg_ul_model) else "global"
+        src = "per-model" if not np.isnan(avg_ul_model) else "global"
 
         model_remaining_sec = (
             remaining_model * eff_avg
@@ -341,13 +372,11 @@ def main():
             else None
         )
 
-        # ← ETA = now + how long this worker still has queued before this
-        #   model + how long this model itself takes
         if model_remaining_sec is not None:
-            eta_done_sec  = worker_cursors[this_worker] + model_remaining_sec
+            eta_done_sec = worker_cursors[this_worker] + model_remaining_sec
             eta_done_when = now + timedelta(seconds=eta_done_sec)
-            eta_done_str  = eta_done_when.strftime("%Y-%m-%d %H:%M:%S")
-            eta_rem_str   = pretty_td(eta_done_sec)
+            eta_done_str = eta_done_when.strftime("%Y-%m-%d %H:%M:%S")
+            eta_rem_str = pretty_td(eta_done_sec)
         else:
             eta_done_str = eta_rem_str = "unknown"
 
@@ -371,11 +400,9 @@ def main():
         else:
             print("  ETA done : unknown (no timing data yet)")
 
-        # ← Advance only this model's worker cursor, not all workers
         if model_remaining_sec is not None:
             worker_cursors[this_worker] += model_remaining_sec
 
-    # Overall wall-clock ETA = when the slowest worker finishes
     max_cursor = max(worker_cursors.values())
     if max_cursor > 0:
         overall_eta = now + timedelta(seconds=max_cursor)
