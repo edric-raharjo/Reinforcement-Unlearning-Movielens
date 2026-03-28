@@ -54,12 +54,15 @@ def custom_utility_score(forget_drop_rel, retain_drop_rel):
 def parse_args():
     if len(sys.argv) < 2:
         raise ValueError(
-            "Usage: python dashboard.py <forget_percentage> [retain_drop_threshold] [K] [mode] [num_top_models]\n"
+            "Usage: python dashboard.py <forget_percentage> [retain_drop_threshold_pp] [K] [mode] [num_top_models]\n"
             "Modes: standard (default) or fair\n"
-            "Example: python dashboard.py 20 0.01 10 standard 5"
+            "Example: python dashboard.py 20 1 10 standard 5"
         )
     forget_percentage = int(sys.argv[1])
-    retain_drop_threshold = float(sys.argv[2]) if len(sys.argv) >= 3 else 0.01
+    raw_threshold = float(sys.argv[2]) if len(sys.argv) >= 3 else 1.0
+    # If the user passes whole number percentages like '1', '5', '10', map to '0.01', etc.
+    retain_drop_threshold = raw_threshold if raw_threshold <= 0.5 else raw_threshold / 100.0
+    
     k_val = int(sys.argv[3]) if len(sys.argv) >= 4 else 10
     mode = sys.argv[4].lower() if len(sys.argv) >= 5 else "standard"
     num_top_models = int(sys.argv[5]) if len(sys.argv) >= 6 else None
@@ -911,7 +914,8 @@ def main():
         comp_fig=comp_fig, # Pass it to the HTML builder
     )
 
-    out_path = Path(OUT_DIR) / f"dashboard_fair_{retain_drop_threshold}_{mode}.html"
+    threshold_str = sys.argv[2] if len(sys.argv) >= 3 else "1.0"
+    out_path = Path(OUT_DIR) / f"dashboard_fair_{threshold_str}_{mode}.html"
     out_path.write_text(html, encoding="utf-8")
     print(f"Dashboard written to: {out_path} (Mode: {mode})")
 

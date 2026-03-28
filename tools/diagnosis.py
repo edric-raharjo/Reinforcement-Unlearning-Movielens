@@ -87,8 +87,9 @@ MODELS_DIR   = os.path.join(RESULTS_BASE, "models")
 
 RESULTS_PATH = os.path.join(RESULTS_BASE, RESULTS_CSV_NAME)
 TRAIN_PATH   = os.path.join(RESULTS_BASE, "train_phase_results.csv")
-DIAG_HTML = os.path.join(ANALYZE_DIR, f"diagnosis_dashboard_{MAX_RETAIN_DROP_PP}.html")
-DIAG_CSV = os.path.join(ANALYZE_DIR, f"diagnosis_stats_{MAX_RETAIN_DROP_PP}.csv")
+THRESHOLD_STR = sys.argv[2] if len(sys.argv) > 2 else str(MAX_RETAIN_DROP_PP)
+DIAG_HTML = os.path.join(ANALYZE_DIR, f"diagnosis_dashboard_{THRESHOLD_STR}.html")
+DIAG_CSV = os.path.join(ANALYZE_DIR, f"diagnosis_stats_{THRESHOLD_STR}.csv")
 
 TOP_SELECTION_K = 5
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
