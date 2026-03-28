@@ -34,15 +34,15 @@ MAX_RETAIN_DROP_PP = float(sys.argv[2])
 NUM_TOP_MODELS     = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
 DATA_DIR     = "C:/Bob/ml-1m"
-    RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent" if FORGET_PERCENTAGE in [1, 20] else f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
+RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent" if FORGET_PERCENTAGE in [1, 20] else f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR   = os.path.join(RESULTS_BASE, "models")
 ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent"
 os.makedirs(ANALYZE_DIR, exist_ok=True)
 
 RESULTS_PATH = os.path.join(RESULTS_BASE, "tuning_full_results.csv")
 TRAIN_PATH   = os.path.join(RESULTS_BASE, "train_phase_results.csv")
-SUMMARY_CSV  = os.path.join(ANALYZE_DIR, "q_summary_{sys.argv[2] if len(sys.argv)>2 else "def"}.csv")
-DETAILED_CSV = os.path.join(ANALYZE_DIR, "q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else "def"}.csv")
+SUMMARY_CSV  = os.path.join(ANALYZE_DIR, f"q_summary_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
+DETAILED_CSV = os.path.join(ANALYZE_DIR, f"q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
 
 DEVICE  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]

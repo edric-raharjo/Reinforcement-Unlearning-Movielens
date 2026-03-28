@@ -19,8 +19,8 @@ if len(sys.argv) < 2:
 FORGET_PERCENTAGE = int(sys.argv[1])
 ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{FORGET_PERCENTAGE}_percent"
 os.makedirs(ANALYZE_DIR, exist_ok=True)
-SUMMARY_CSV = os.path.join(ANALYZE_DIR, "q_summary_{sys.argv[2] if len(sys.argv)>2 else "def"}.csv")
-DETAILED_CSV = os.path.join(ANALYZE_DIR, "q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else "def"}.csv")
+SUMMARY_CSV = os.path.join(ANALYZE_DIR, f"q_summary_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
+DETAILED_CSV = os.path.join(ANALYZE_DIR, f"q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
 THRESHOLD = sys.argv[2] if len(sys.argv) > 2 else "def"
 DASHBOARD_HTML = os.path.join(ANALYZE_DIR, f"q_dashboard_{THRESHOLD}.html")
 
