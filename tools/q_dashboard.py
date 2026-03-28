@@ -17,7 +17,14 @@ if len(sys.argv) < 2:
     raise ValueError("Usage: python q_dashboard.py <forget_pct>")
 
 FORGET_PERCENTAGE = int(sys.argv[1])
-ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{FORGET_PERCENTAGE}_percent"
+
+is_demo = os.environ.get("RUN_MODE", "Demography") == "Demography"
+
+if is_demo:
+    ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{FORGET_PERCENTAGE}_percent"
+else:
+    ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent"
+
 os.makedirs(ANALYZE_DIR, exist_ok=True)
 SUMMARY_CSV = os.path.join(ANALYZE_DIR, f"q_summary_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
 DETAILED_CSV = os.path.join(ANALYZE_DIR, f"q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")

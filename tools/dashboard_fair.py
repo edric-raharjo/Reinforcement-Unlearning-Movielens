@@ -8,10 +8,13 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-OUT_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{sys.argv[1]}_percent"
 import os
-os.makedirs(OUT_DIR, exist_ok=True)
-from plotly.offline import plot
+
+is_demo = os.environ.get("RUN_MODE", "Normal") == "Demography"
+if is_demo:
+    OUT_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{sys.argv[1]}_percent"
+else:
+    OUT_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{sys.argv[1]}_percent"
 
 
 METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
@@ -834,7 +837,14 @@ setTimeout(resizePlots, 100);
 def main():
     forget_percentage, retain_drop_threshold, k_val, mode, num_top_models = parse_args()
 
-    results_base = Path(f"C:/Bob/results/{forget_percentage}_percent") if forget_percentage in [1, 20] else Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_percentage}_percent")
+    is_demo = os.environ.get("RUN_MODE", "Normal") == "Demography"
+    if is_demo:
+        results_base = Path(f"D:/Bob_Skripsi_Do Not Delete/results_demography/{forget_percentage}_percent")
+        out_dir = Path(f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{forget_percentage}_percent")
+    else:
+        results_base = Path(f"C:/Bob/results/{forget_percentage}_percent") if forget_percentage in [1, 20] else Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_percentage}_percent")
+        out_dir = Path(f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{forget_percentage}_percent")
+
     if not results_base.exists():
         raise FileNotFoundError(f"Results folder not found: {results_base}")
 

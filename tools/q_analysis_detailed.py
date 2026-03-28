@@ -34,11 +34,18 @@ MAX_RETAIN_DROP_PP = float(sys.argv[2])
 NUM_TOP_MODELS     = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
 DATA_DIR     = "C:/Bob/ml-1m"
-RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent" if FORGET_PERCENTAGE in [1, 20] else f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
-MODELS_DIR   = os.path.join(RESULTS_BASE, "models")
-ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent"
+
+is_demo = os.environ.get("RUN_MODE", "Normal") == "Demography"
+if is_demo:
+    RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results_demography/{FORGET_PERCENTAGE}_percent"
+    ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Demography/{FORGET_PERCENTAGE}_percent"
+else:
+    RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent" if FORGET_PERCENTAGE in [1, 20] else f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
+    ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent"
+
 os.makedirs(ANALYZE_DIR, exist_ok=True)
 
+MODELS_DIR   = os.path.join(RESULTS_BASE, "models")
 RESULTS_PATH = os.path.join(RESULTS_BASE, "tuning_full_results.csv")
 TRAIN_PATH   = os.path.join(RESULTS_BASE, "train_phase_results.csv")
 SUMMARY_CSV  = os.path.join(ANALYZE_DIR, f"q_summary_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
