@@ -19,3 +19,6 @@ foreach ($pct in $percentagesDemo) {
     }
 }
 Write-Host "Done verify"
+
+Write-Host "=== VERIFICATION SUMMARY ==="
+python check_verifications.py
