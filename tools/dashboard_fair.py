@@ -16,6 +16,8 @@ if is_demo:
 else:
     OUT_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{sys.argv[1]}_percent"
 
+os.makedirs(OUT_DIR, exist_ok=True)
+from plotly.offline import plot
 
 METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
 PARETO_COLORS = {
