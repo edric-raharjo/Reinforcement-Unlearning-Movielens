@@ -41,7 +41,24 @@ KS      = [1, 5, 10]
 # Paths  — always read merged files, never per-worker files
 # ---------------------------------------------------------------------------
 DATA_DIR     = "C:/Bob/ml-1m"
-RESULTS_BASE = Path(f"C:/Bob/results/{FORGET_PERCENTAGE}_percent")
+RESULTS_BASE = Path(f"C:/Bob/results/{FORGET_PERCENTAGE}_percent") if FORGET_PERCENTAGE in [1, 20] else Path(f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent")
+OUT_BASE = Path(f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent")
+OUT_BASE.mkdir(parents=True, exist_ok=True)
+
+import sys
+class TeeLogger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w", encoding='utf-8')
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = TeeLogger(OUT_BASE / f"verify_{MAX_RETAIN_DROP}.txt")
+
 MODELS_DIR   = RESULTS_BASE / "models"
 
 # Merged Phase-1 results (written by merge script, contains all workers)

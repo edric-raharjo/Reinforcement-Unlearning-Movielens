@@ -5,7 +5,7 @@ diagnosis.py  <forget_pct>  <max_retain_drop_pp>  [results_csv_name] [num_top_mo
 
 Geometric diagnosis: are damaged retain users geometrically closer to forget users?
 Produces an interactive HTML dashboard at:
-    C:/Bob/results_deterministic/<forget_pct>_percent/diagnosis_dashboard.html
+    C:/Bob/results_deterministic/<forget_pct>_percent/diagnosis_dashboard_{MAX_RETAIN_DROP_PP}.html
 """
 
 import copy, hashlib, os, sys, warnings
@@ -72,15 +72,15 @@ torch.backends.cudnn.benchmark     = False
 torch.use_deterministic_algorithms(True, warn_only=True)
 
 DATA_DIR     = "C:/Bob/ml-1m"
-RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
+    RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent" if FORGET_PERCENTAGE in [1, 20] else f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR   = os.path.join(RESULTS_BASE, "models")
-ANALYZE_DIR  = os.path.join(RESULTS_BASE, "analyze", "diagnose")
+ANALYZE_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{FORGET_PERCENTAGE}_percent"
 os.makedirs(ANALYZE_DIR, exist_ok=True)
 
 RESULTS_PATH = os.path.join(RESULTS_BASE, RESULTS_CSV_NAME)
 TRAIN_PATH   = os.path.join(RESULTS_BASE, "train_phase_results.csv")
-DIAG_HTML    = os.path.join(ANALYZE_DIR, "diagnosis_dashboard.html")
-DIAG_CSV     = os.path.join(ANALYZE_DIR, "diagnosis_stats.csv")
+DIAG_HTML = os.path.join(ANALYZE_DIR, f"diagnosis_dashboard_{MAX_RETAIN_DROP_PP}.html")
+DIAG_CSV = os.path.join(ANALYZE_DIR, f"diagnosis_stats_{MAX_RETAIN_DROP_PP}.csv")
 
 TOP_SELECTION_K = 5
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")

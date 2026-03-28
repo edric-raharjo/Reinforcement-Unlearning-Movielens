@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+OUT_DIR = f"D:/Bob_Skripsi_Do Not Delete/Analysis/Normal/{sys.argv[1]}_percent"
+import os
+os.makedirs(OUT_DIR, exist_ok=True)
 from plotly.offline import plot
 
 
@@ -831,7 +834,7 @@ setTimeout(resizePlots, 100);
 def main():
     forget_percentage, retain_drop_threshold, k_val, mode, num_top_models = parse_args()
 
-    results_base = Path(f"C:/Bob/results/{forget_percentage}_percent")
+    results_base = Path(f"C:/Bob/results/{forget_percentage}_percent") if forget_percentage in [1, 20] else Path(f"D:/Bob_Skripsi_Do Not Delete/results/{forget_percentage}_percent")
     if not results_base.exists():
         raise FileNotFoundError(f"Results folder not found: {results_base}")
 
@@ -896,7 +899,7 @@ def main():
         comp_fig=comp_fig, # Pass it to the HTML builder
     )
 
-    out_path = results_base / "analyze" / "overall" / "dashboard.html"
+    out_path = Path(OUT_DIR) / f"dashboard_fair_{retain_drop_threshold}_{mode}.html"
     out_path.write_text(html, encoding="utf-8")
     print(f"Dashboard written to: {out_path} (Mode: {mode})")
 
