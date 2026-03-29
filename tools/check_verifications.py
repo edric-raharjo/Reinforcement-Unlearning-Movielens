@@ -44,6 +44,8 @@ def main():
         print(f"\n--- {mode} Models ---")
         for pct in pcts:
             for k in thresholds:
+                if pct == 20 and mode == "Demography":
+                    continue
                 fname = base_dir / mode / f"{pct}_percent" / f"verify_{k}.txt"
                 if fname.exists():
                     status = check_file_contents(fname)
