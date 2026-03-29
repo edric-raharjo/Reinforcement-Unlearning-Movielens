@@ -466,7 +466,7 @@ function makeTraces(metric, dropType, threshold, kVal) {{
                 showlegend: mode === 'Normal',
                 line: {{ color: colors[method], width: 3, dash: modeStyles[mode].dash }},
                 marker: {{ size: 7 }},
-                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Threshold: ' + threshold + '<br>K: ' + kVal + '<br>Forget %: %{x}%<br>Drop: %{y:.2f}%<extra></extra>'
+                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Threshold: ' + threshold + '<br>K: ' + kVal + '<br>Forget %: %{{x}}%<br>Drop: %{{y:.2f}}%<extra></extra>'
             }});
         }}
     }}
