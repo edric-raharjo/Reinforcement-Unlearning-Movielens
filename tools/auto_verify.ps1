@@ -28,6 +28,7 @@ foreach ($pct in $percentagesNormal) {
         Run-With-Concurrency -ScriptBlock {
             param($pct, $k, $dir)
             Set-Location $dir
+            $env:PYTHONIOENCODING = "utf-8"
             python verify.py $pct $k
         } -ArgumentList $pct, $k, $CurrentDir
     }
@@ -40,6 +41,7 @@ foreach ($pct in $percentagesDemo) {
         Run-With-Concurrency -ScriptBlock {
             param($pct, $k, $dir)
             Set-Location $dir
+            $env:PYTHONIOENCODING = "utf-8"
             python verify_demo.py $pct $k
         } -ArgumentList $pct, $k, $CurrentDir
     }

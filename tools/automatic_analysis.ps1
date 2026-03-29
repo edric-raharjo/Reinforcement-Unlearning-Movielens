@@ -28,6 +28,7 @@ foreach ($pct in $percentagesNormal) {
         Run-With-Concurrency -ScriptBlock {
             param($pct, $k, $dir)
             Set-Location $dir
+            $env:PYTHONIOENCODING="utf-8"
             $env:RUN_MODE="Normal"
             python q_analysis_detailed.py $pct $k 8
             python q_dashboard.py $pct $k
@@ -44,6 +45,7 @@ foreach ($pct in $percentagesDemo) {
         Run-With-Concurrency -ScriptBlock {
             param($pct, $k, $dir)
             Set-Location $dir
+            $env:PYTHONIOENCODING="utf-8"
             $env:RUN_MODE="Demography"
             python q_analysis_detailed.py $pct $k 8
             python q_dashboard.py $pct $k
