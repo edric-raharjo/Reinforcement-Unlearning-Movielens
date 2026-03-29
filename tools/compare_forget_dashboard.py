@@ -76,26 +76,10 @@ def prepare_results(df):
     df["retain_drop_ndcg"] = df["base_retain_NDCG"] - df["retain_NDCG"]
     df["forget_drop_ndcg"] = df["base_forget_NDCG"] - df["forget_NDCG"]
 
-    df["retain_drop_hit_rel"] = np.where(
-        df["base_retain_Hit"] > 0,
-        (df["retain_drop_hit"] / df["base_retain_Hit"]) * 100.0,
-        np.nan,
-    )
-    df["forget_drop_hit_rel"] = np.where(
-        df["base_forget_Hit"] > 0,
-        (df["forget_drop_hit"] / df["base_forget_Hit"]) * 100.0,
-        np.nan,
-    )
-    df["retain_drop_ndcg_rel"] = np.where(
-        df["base_retain_NDCG"] > 0,
-        (df["retain_drop_ndcg"] / df["base_retain_NDCG"]) * 100.0,
-        np.nan,
-    )
-    df["forget_drop_ndcg_rel"] = np.where(
-        df["base_forget_NDCG"] > 0,
-        (df["forget_drop_ndcg"] / df["base_forget_NDCG"]) * 100.0,
-        np.nan,
-    )
+    df["retain_drop_hit_pp"] = df["retain_drop_hit"] * 100.0
+    df["forget_drop_hit_pp"] = df["forget_drop_hit"] * 100.0
+    df["retain_drop_ndcg_pp"] = df["retain_drop_ndcg"] * 100.0
+    df["forget_drop_ndcg_pp"] = df["forget_drop_ndcg"] * 100.0
 
     return df
 
@@ -205,8 +189,8 @@ def filter_results_to_top_configs(results_df, top_configs):
 
 
 def select_method_row(df, metric, threshold, method):
-    retain_col = f"retain_drop_{metric.lower()}_rel"
-    forget_col = f"forget_drop_{metric.lower()}_rel"
+    retain_col = f"retain_drop_{metric.lower()}_pp"
+    forget_col = f"forget_drop_{metric.lower()}_pp"
     mdf = df[df["method"] == method].copy()
 
     if mdf.empty:
@@ -253,7 +237,8 @@ def build_chart_data(num_top_models):
 
             for k_val in KS:
                 top_configs, top_notes = select_top_configs(train_df, k_val, num_top_models)
-                alerts.extend([f"{mode} {pct}% K={k_val}: {msg}" for msg in top_notes])
+                if top_configs is None and any("Missing" in msg or "missing" in msg for msg in top_notes):
+                    alerts.extend([f"{mode} {pct}% K={k_val}: {msg}" for msg in top_notes])
                 filtered_results = filter_results_to_top_configs(results_df, top_configs)
                 k_df = filtered_results[filtered_results["K"] == k_val].copy()
                 if k_df.empty:
@@ -261,8 +246,8 @@ def build_chart_data(num_top_models):
                     continue
 
                 for metric in METRICS:
-                    retain_col = f"retain_drop_{metric.lower()}_rel"
-                    forget_col = f"forget_drop_{metric.lower()}_rel"
+                    retain_col = f"retain_drop_{metric.lower()}_pp"
+                    forget_col = f"forget_drop_{metric.lower()}_pp"
 
                     for threshold in THRESHOLDS:
                         for method in METHODS:
@@ -314,24 +299,7 @@ def build_chart_data(num_top_models):
 
 
 def build_summary_rows(coverage):
-    if not coverage:
-        return "<tr><td colspan='7'>No selected rows were generated.</td></tr>"
-
-    grouped = defaultdict(list)
-    for row in coverage:
-        grouped[(row["mode"], row["metric"], row["threshold"], row["k"])].append(row)
-
-    rows = []
-    for (mode, metric, threshold, k_val), items in sorted(grouped.items()):
-        retain_vals = [item["retain_drop"] for item in items]
-        forget_vals = [item["forget_drop"] for item in items]
-        fallback_count = sum(1 for item in items if item["fallback"])
-        rows.append(
-            f"<tr><td>{mode}</td><td>{metric}</td><td>{threshold}</td><td>{k_val}</td>"
-            f"<td>{np.mean(retain_vals):.2f}</td><td>{np.mean(forget_vals):.2f}</td>"
-            f"<td>{fallback_count}</td></tr>"
-        )
-    return "\n".join(rows)
+    return ""
 
 
 def build_alert_list(alerts):
@@ -351,7 +319,6 @@ def build_alert_list(alerts):
 def build_html(chart_data, alerts, coverage, num_top_models):
     data_json = json.dumps(chart_data)
     alerts_html = build_alert_list(alerts)
-    summary_html = build_summary_rows(coverage)
 
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
@@ -380,6 +347,7 @@ def build_html(chart_data, alerts, coverage, num_top_models):
         .radio-row {{ display: flex; flex-wrap: wrap; gap: 10px; }}
         .radio-pill {{ display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; user-select: none; }}
         .radio-pill input {{ margin: 0; }}
+            .mode-checklist {{ display: flex; flex-wrap: wrap; gap: 10px; }}
         .top-note {{ font-size: 13px; color: var(--muted); margin-top: 10px; }}
         .tab-bar {{ display: flex; gap: 10px; margin-bottom: 14px; }}
         .tab-btn {{ border: 1px solid var(--line); background: #fff; color: var(--text); padding: 10px 16px; border-radius: 12px; cursor: pointer; font-weight: 700; }}
@@ -420,6 +388,13 @@ def build_html(chart_data, alerts, coverage, num_top_models):
             <h3>Info</h3>
             <div class=\"top-note\">The radio boxes switch among precomputed selections; the HTML is generated once and remains interactive offline.</div>
         </div>
+            <div class="control-group">
+                <h3>Mode</h3>
+                <div class="mode-checklist">
+                    <label class="radio-pill"><input type="checkbox" name="mode" value="Normal" checked> Normal</label>
+                    <label class="radio-pill"><input type="checkbox" name="mode" value="Demography" checked> Demography</label>
+                </div>
+            </div>
     </div>
 
     <div class=\"panel alerts\">
@@ -427,20 +402,7 @@ def build_html(chart_data, alerts, coverage, num_top_models):
         <ul>{alerts_html}</ul>
     </div>
 
-    <div class=\"panel\">
-        <h3 style=\"margin:0 0 10px; font-size:14px; text-transform:uppercase; color:var(--muted); letter-spacing:0.6px;\">Summary</h3>
-        <div style=\"overflow:auto;\">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Mode</th><th>Metric</th><th>Threshold</th><th>K</th><th>Mean Retain Drop</th><th>Mean Forget Drop</th><th>Fallback Count</th>
-                    </tr>
-                </thead>
-                <tbody>{summary_html}</tbody>
-            </table>
-        </div>
-    </div>
-
+    <div class="tab-bar">
     <div class=\"tab-bar\">
         <button class=\"tab-btn active\" data-tab=\"Hit\" onclick=\"switchTab('Hit')\">Hit</button>
         <button class=\"tab-btn\" data-tab=\"NDCG\" onclick=\"switchTab('NDCG')\">NDCG</button>
@@ -491,6 +453,10 @@ function currentK() {{
     return document.querySelector('input[name="kval"]:checked').value;
 }}
 
+function activeModes() {{
+    return Array.from(document.querySelectorAll('input[name="mode"]:checked')).map(el => el.value);
+}}
+
 function makeTraces(metric, dropType, threshold, kVal) {{
     const block = (((chartData[metric] || {{}})[dropType] || {{}})[String(threshold)] || {{}})[String(kVal)] || {{}};
     const traces = [];
@@ -507,9 +473,10 @@ function makeTraces(metric, dropType, threshold, kVal) {{
                 name: method,
                 legendgroup: method,
                 showlegend: mode === 'Normal',
+                meta: {{ mode: mode, method: method }},
                 line: {{ color: colors[method], width: 3, dash: modeStyles[mode].dash }},
                 marker: {{ size: 7 }},
-                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Threshold: ' + threshold + '<br>K: ' + kVal + '<br>Forget %: %{{x}}%<br>Drop: %{{y:.2f}}%<extra></extra>'
+                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Threshold: ' + threshold + '<br>K: ' + kVal + '<br>Forget %: %{{x}}%<br>Drop: %{{y:.2f}} pp<extra></extra>'
             }});
         }}
     }}
@@ -524,13 +491,14 @@ function layoutFor(title) {{
         height: 420,
         legend: {{ orientation: 'h', y: -0.2, x: 0, groupclick: 'togglegroup' }},
         xaxis: {{ title: 'Forget percentage' }},
-        yaxis: {{ title: 'Drop (%)' }},
+        yaxis: {{ title: 'Drop (pp)' }},
     }};
 }}
 
 function renderCharts() {{
     const threshold = currentThreshold();
     const kVal = currentK();
+    const modes = new Set(activeModes());
 
     const configs = [
         ['Hit-retain', 'Hit', 'retain', 'Hit: Retain Drop'],
@@ -540,7 +508,7 @@ function renderCharts() {{
     ];
 
     for (const [divId, metric, dropType, title] of configs) {{
-        const traces = makeTraces(metric, dropType, threshold, kVal);
+        const traces = makeTraces(metric, dropType, threshold, kVal).filter(trace => trace.meta && modes.has(trace.meta.mode));
         Plotly.react(divId, traces, layoutFor(title), {{responsive: true, displaylogo: false}});
     }}
 }}
@@ -561,6 +529,7 @@ function switchTab(tabName) {{
 
 document.querySelectorAll('input[name="threshold"]').forEach(el => el.addEventListener('change', renderCharts));
 document.querySelectorAll('input[name="kval"]').forEach(el => el.addEventListener('change', renderCharts));
+document.querySelectorAll('input[name="mode"]').forEach(el => el.addEventListener('change', renderCharts));
 
 window.addEventListener('resize', () => {{
     ['Hit-retain', 'Hit-forget', 'NDCG-retain', 'NDCG-forget'].forEach(id => {{
