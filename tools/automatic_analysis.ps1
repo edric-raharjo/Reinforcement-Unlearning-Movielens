@@ -30,10 +30,10 @@ foreach ($pct in $percentagesNormal) {
             Set-Location $dir
             $env:PYTHONIOENCODING="utf-8"
             $env:RUN_MODE="Normal"
-            python q_analysis_detailed.py $pct $k 8
-            python q_dashboard.py $pct $k
-            python dashboard_fair.py $pct $k 10 "fair" 8
-            python diagnosis.py $pct $k 8
+            python q_analysis_detailed.py $pct $k 8 2>&1
+            python q_dashboard.py $pct $k 2>&1
+            python dashboard_fair.py $pct $k 10 "fair" 8 2>&1
+            python diagnosis.py $pct $k 8 2>&1
         } -ArgumentList $pct, $k, $CurrentDir
     }
 }
@@ -47,10 +47,10 @@ foreach ($pct in $percentagesDemo) {
             Set-Location $dir
             $env:PYTHONIOENCODING="utf-8"
             $env:RUN_MODE="Demography"
-            python q_analysis_detailed.py $pct $k 8
-            python q_dashboard.py $pct $k
-            python dashboard_fair.py $pct $k 10 "fair" 8
-            python diagnosis.py $pct $k 8
+            python q_analysis_detailed.py $pct $k 8 2>&1
+            python q_dashboard.py $pct $k 2>&1
+            python dashboard_fair.py $pct $k 10 "fair" 8 2>&1
+            python diagnosis.py $pct $k 8 2>&1
         } -ArgumentList $pct, $k, $CurrentDir
     }
 }
