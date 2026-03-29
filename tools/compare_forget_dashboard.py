@@ -11,6 +11,14 @@ import pandas as pd
 
 
 BASE_ANALYSIS = Path("D:/Bob_Skripsi_Do Not Delete/Analysis")
+BASE_RESULTS = Path("D:/Bob_Skripsi_Do Not Delete/results")
+BASE_RESULTS_DEMO = Path("D:/Bob_Skripsi_Do Not Delete/results_demography")
+ALT_CANDIDATE_ROOTS = [
+    BASE_RESULTS,
+    BASE_RESULTS_DEMO,
+    Path("C:/Bob/results"),
+    Path("C:/Bob/results_demography"),
+]
 METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
 METRICS = ["Hit", "NDCG"]
 MODES = {
@@ -92,22 +100,57 @@ def prepare_results(df):
     return df
 
 
+def resolve_input_file(mode, pct, filename):
+    roots = [BASE_ANALYSIS, BASE_RESULTS, BASE_RESULTS_DEMO] + ALT_CANDIDATE_ROOTS
+    seen = set()
+    candidates = []
+    for root in roots:
+        if root in seen:
+            continue
+        seen.add(root)
+        candidates.extend([
+            root / mode / f"{pct}_percent" / filename,
+            root / f"{pct}_percent" / filename,
+            root / mode / f"{pct}_percent" / "analyze" / "overall" / filename,
+            root / f"{pct}_percent" / "analyze" / "overall" / filename,
+            root / mode / f"{pct}_percent" / "analyze" / "diagnose" / filename,
+            root / f"{pct}_percent" / "analyze" / "diagnose" / filename,
+        ])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    for root in roots:
+        if not root.exists():
+            continue
+        for candidate in root.rglob(filename):
+            parts = {part.lower() for part in candidate.parts}
+            if f"{pct}_percent" in parts:
+                if mode.lower() == "normal" and ("demography" not in parts):
+                    return candidate
+                if mode.lower() == "demography" and ("demography" in parts):
+                    return candidate
+
+    return None
+
+
 def load_csvs_for_mode_pct(mode, pct):
     if mode == "Demography" and pct == 20:
         return None, None, [f"{mode} {pct}% is intentionally unavailable and was skipped."]
 
-    results_path = BASE_ANALYSIS / mode / f"{pct}_percent" / "tuning_full_results.csv"
-    train_path = BASE_ANALYSIS / mode / f"{pct}_percent" / "train_phase_results.csv"
+    results_path = resolve_input_file(mode, pct, "tuning_full_results.csv")
+    train_path = resolve_input_file(mode, pct, "train_phase_results.csv")
 
     alerts = []
-    if not results_path.exists():
-        alerts.append(f"Missing results file: {results_path}")
+    if results_path is None:
+        alerts.append(f"Missing results file for {mode} {pct}% (searched Analysis/results/results_demography roots).")
         return None, None, alerts
 
     results_df = prepare_results(pd.read_csv(results_path))
-    train_df = pd.read_csv(train_path) if train_path.exists() else pd.DataFrame()
+    train_df = pd.read_csv(train_path) if train_path is not None and train_path.exists() else pd.DataFrame()
     if train_df.empty:
-        alerts.append(f"Missing train phase file: {train_path}")
+        alerts.append(f"Missing train phase file for {mode} {pct}% (top-model filtering will fall back to all runs).")
 
     return results_df, train_df, alerts
 
