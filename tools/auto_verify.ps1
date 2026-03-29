@@ -5,7 +5,7 @@ $thresholds = @(1, 5, 10)
 
 $MaxJobs = 4
 $CurrentDir = $PWD.Path
-$JobList = @()
+$global:JobList = @()
 
 function Run-With-Concurrency {
     param(
