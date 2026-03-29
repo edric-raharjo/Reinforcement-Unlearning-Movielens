@@ -3,7 +3,7 @@ $percentagesNormal = @(1, 2, 3, 4, 5, 20)
 $percentagesDemo = @(1, 2, 3, 4, 5)
 $thresholds = @(1, 5, 10)
 
-$MaxJobs = 4
+$MaxJobs = 10
 $CurrentDir = $PWD.Path
 $global:JobList = @()
 
