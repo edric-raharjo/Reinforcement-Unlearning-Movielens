@@ -10,7 +10,7 @@ foreach ($pct in $percentagesNormal) {
         $env:RUN_MODE="Normal"
         python q_analysis_detailed.py $pct $k
         python q_dashboard.py $pct $k
-        python dashboard_fair.py $pct $k
+        python dashboard_fair.py $pct $k 10 standard 8
         python diagnosis.py $pct $k
     }
 }

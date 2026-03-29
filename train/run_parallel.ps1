@@ -61,7 +61,7 @@ Write-Host "=== Merging Phase 1 results ===" -ForegroundColor Cyan
 Set-Location $ScriptDir
 $env:PYTHONUTF8 = 1
 $env:PYTHONUNBUFFERED = 1
-& $Python -u merge_results.py $ForgetPct
+& $Python -u merge_results.py $ForgetPct 1
 
 Start-Sleep -Seconds 5
 
@@ -87,6 +87,6 @@ Write-Host "Phase 2 complete." -ForegroundColor Green
 Write-Host "=== Merging final results ===" -ForegroundColor Cyan
 $env:PYTHONUTF8 = 1
 $env:PYTHONUNBUFFERED = 1
-& $Python -u merge_results.py $ForgetPct
+& $Python -u merge_results.py $ForgetPct 1
 
 Write-Host "All done!" -ForegroundColor Green
