@@ -76,16 +76,23 @@ def prepare_results(df):
     df["retain_drop_ndcg"] = df["base_retain_NDCG"] - df["retain_NDCG"]
     df["forget_drop_ndcg"] = df["base_forget_NDCG"] - df["forget_NDCG"]
 
-    df["retain_drop_hit_pp"] = df["retain_drop_hit"] * 100.0
-    df["forget_drop_hit_pp"] = df["forget_drop_hit"] * 100.0
-    df["retain_drop_ndcg_pp"] = df["retain_drop_ndcg"] * 100.0
-    df["forget_drop_ndcg_pp"] = df["forget_drop_ndcg"] * 100.0
+    # FIX: Round to 4 decimal places to prevent float math from breaking the <= thresholds
+    df["retain_drop_hit_pp"] = (df["retain_drop_hit"] * 100.0).round(4)
+    df["forget_drop_hit_pp"] = (df["forget_drop_hit"] * 100.0).round(4)
+    df["retain_drop_ndcg_pp"] = (df["retain_drop_ndcg"] * 100.0).round(4)
+    df["forget_drop_ndcg_pp"] = (df["forget_drop_ndcg"] * 100.0).round(4)
 
     return df
 
 
 def resolve_input_file(mode, pct, filename):
     roots = [BASE_ANALYSIS, BASE_RESULTS, BASE_RESULTS_DEMO] + ALT_CANDIDATE_ROOTS
+    
+    def is_correct_mode(path):
+        parts = [p.lower() for p in path.parts]
+        has_demo = any("demography" in p for p in parts)
+        return has_demo if mode.lower() == "demography" else not has_demo
+
     seen = set()
     candidates = []
 
@@ -103,7 +110,7 @@ def resolve_input_file(mode, pct, filename):
         ])
 
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.exists() and is_correct_mode(candidate):
             return candidate
 
     for root in roots:
@@ -111,11 +118,8 @@ def resolve_input_file(mode, pct, filename):
             continue
         for candidate in root.rglob(filename):
             parts = {part.lower() for part in candidate.parts}
-            if f"{pct}_percent" in parts:
-                if mode.lower() == "normal" and ("demography" not in parts):
-                    return candidate
-                if mode.lower() == "demography" and ("demography" in parts):
-                    return candidate
+            if f"{pct}_percent" in parts and is_correct_mode(candidate):
+                return candidate
 
     return None
 
@@ -153,7 +157,8 @@ def select_top_configs(train_df, k_val, num_top_models):
     if train_df is None or train_df.empty or "K" not in train_df.columns:
         return None
 
-    sort_metric = "base_combined_Hit" if "base_combined_Hit" in train_df.columns else "base_retain_Hit"
+    # FIX: Exclusively use base_retain_Hit to match the logic from your other scripts exactly
+    sort_metric = "base_retain_Hit"
 
     rank_df = (
         train_df[train_df["K"] == k_val]
@@ -190,19 +195,18 @@ def select_method_row(df, metric, threshold, method):
     if mdf.empty:
         return None
 
+    # FIX: Because we applied .round(4) earlier, <= safely captures exact boundaries without float bugs
     constrained = mdf[mdf[retain_col] <= threshold].copy()
+    
     if not constrained.empty:
+        # FIX: Complete tie-breaker logic. If forget drops tie, pick the one with the smallest retain drop.
         return constrained.sort_values(
             [forget_col, retain_col, "unlearn_iters"],
             ascending=[False, True, True],
             kind="mergesort",
         ).iloc[0].copy()
 
-    return mdf.sort_values(
-        [forget_col, retain_col, "unlearn_iters"],
-        ascending=[False, True, True],
-        kind="mergesort",
-    ).iloc[0].copy()
+    return None
 
 
 def build_chart_data(num_top_models):
@@ -324,16 +328,15 @@ def build_html(chart_data, alerts, num_top_models):
         .tab-btn.active {{ background: #0f172a; color: white; border-color: #0f172a; }}
         .tab-content {{ display: none; }}
         .tab-content.active {{ display: block; }}
+        
         .chart-grid {{ display: grid; grid-template-columns: 1fr; gap: 16px; }}
+        
         .chart-card {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }}
         .chart-title {{ margin: 0 0 8px; font-size: 16px; font-weight: 700; }}
         .chart-note {{ margin: 0 0 12px; font-size: 13px; color: var(--muted); }}
         .chart-box {{ width: 100%; min-height: 420px; }}
         .alerts ul {{ margin: 0; padding-left: 20px; }}
         .alerts li {{ margin-bottom: 6px; }}
-        @media (min-width: 1024px) {{
-            .chart-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-        }}
     </style>
 </head>
 <body>
@@ -423,9 +426,11 @@ function activeModes() {{
     return Array.from(document.querySelectorAll('input[name="mode"]:checked')).map(el => el.value);
 }}
 
-function makeTraces(metric, dropType, threshold, kVal) {{
+function makeTraces(metric, dropType, threshold, kVal, activeModesSet) {{
     const block = (((chartData[metric] || {{}})[dropType] || {{}})[String(threshold)] || {{}})[String(kVal)] || {{}};
     const traces = [];
+    
+    const firstActiveMode = Array.from(activeModesSet)[0];
 
     for (const mode of Object.keys(block)) {{
         for (const method of methods) {{
@@ -438,7 +443,7 @@ function makeTraces(metric, dropType, threshold, kVal) {{
                 mode: 'lines+markers',
                 name: method,
                 legendgroup: method,
-                showlegend: mode === 'Normal',
+                showlegend: mode === firstActiveMode,
                 meta: {{ mode: mode, method: method }},
                 line: {{ color: colors[method], width: 3, dash: modeStyles[mode].dash }},
                 marker: {{ size: 7 }},
@@ -475,7 +480,7 @@ function renderCharts() {{
     ];
 
     for (const [divId, metric, dropType, title] of configs) {{
-        const traces = makeTraces(metric, dropType, threshold, kVal).filter(trace => trace.meta && modes.has(trace.meta.mode));
+        const traces = makeTraces(metric, dropType, threshold, kVal, modes).filter(trace => trace.meta && modes.has(trace.meta.mode));
         Plotly.react(divId, traces, layoutFor(title), {{ responsive: true, displaylogo: false }});
     }}
 }}
