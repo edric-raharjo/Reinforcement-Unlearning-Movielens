@@ -124,9 +124,6 @@ def resolve_input_file(mode, pct, filename):
 
 
 def load_csvs_for_mode_pct(mode, pct):
-    if mode == "Demography" and pct == 20:
-        return None, None, []
-
     results_path = resolve_input_file(mode, pct, "tuning_full_results.csv")
     train_path = resolve_input_file(mode, pct, "train_phase_results.csv")
 
