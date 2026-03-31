@@ -1,7 +1,7 @@
 Write-Host "Starting Automatic Analysis"
 $percentagesNormal = @(1, 2, 3, 4, 5, 20)
-$percentagesDemo = @(1, 2, 3, 4, 5)
-$thresholds = @(1, 5, 10)
+$percentagesDemo = @(1, 2, 3, 4, 5, 20)
+$thresholds = @(0, 1, 2, 5, 10)
 
 $MaxJobs = 5
 $CurrentDir = $PWD.Path

@@ -417,7 +417,7 @@ def build_comparison_figure(selected_df: pd.DataFrame, k_val: int, forget_pct: i
     fig = go.Figure()
 
     # Styling Constants
-    c_base  = "#94a3b8"  # Slate 400
+    c_base  = "#8cb8f6"  # Slate 400
     c_ret   = "#3b82f6"  # Blue 500 (Retain)
     c_for   = "#f43f5e"  # Rose 500 (Forget)
 
@@ -439,7 +439,7 @@ def build_comparison_figure(selected_df: pd.DataFrame, k_val: int, forget_pct: i
     # Forget Before
     fig.add_trace(go.Bar(
         name='Forget Before', x=display_methods, y=fb,
-        marker_color="#cbd5e1", offsetgroup=2,
+        marker_color="#f08282", offsetgroup=2,
         text=[f"Before:<br>{v}%" for v in fb], textposition='inside',
         insidetextanchor='middle'
     ))

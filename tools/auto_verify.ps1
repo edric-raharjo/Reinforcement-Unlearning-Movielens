@@ -1,6 +1,6 @@
 Write-Host "Starting Auto Verify"
 $percentagesNormal = @(1, 2, 3, 4, 5, 20)
-$percentagesDemo = @(1, 2, 3, 4, 5)
+$percentagesDemo = @(1, 2, 3, 4, 5, 20)
 $thresholds = @(1, 5, 10)
 
 $MaxJobs = 5

@@ -91,7 +91,7 @@ THRESHOLD_STR = sys.argv[2] if len(sys.argv) > 2 else str(MAX_RETAIN_DROP_PP)
 DIAG_HTML = os.path.join(ANALYZE_DIR, f"diagnosis_dashboard_{THRESHOLD_STR}.html")
 DIAG_CSV = os.path.join(ANALYZE_DIR, f"diagnosis_stats_{THRESHOLD_STR}.csv")
 
-TOP_SELECTION_K = 5
+TOP_SELECTION_K = 10
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 METHODS         = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
 

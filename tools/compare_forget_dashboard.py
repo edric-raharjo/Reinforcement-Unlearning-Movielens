@@ -23,9 +23,9 @@ METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
 METRICS = ["Hit", "NDCG"]
 MODES = {
     "Normal": [1, 2, 3, 4, 5, 20],
-    "Demography": [1, 2, 3, 4, 5],
+    "Demography": [1, 2, 3, 4, 5, 20],
 }
-THRESHOLDS = [1, 5, 10]
+THRESHOLDS = [0, 1, 2, 5, 10]
 KS = [1, 5, 10]
 
 PLOT_COLORS = {
@@ -76,7 +76,6 @@ def prepare_results(df):
     df["retain_drop_ndcg"] = df["base_retain_NDCG"] - df["retain_NDCG"]
     df["forget_drop_ndcg"] = df["base_forget_NDCG"] - df["forget_NDCG"]
 
-    # FIX: Round to 4 decimal places to prevent float math from breaking the <= thresholds
     df["retain_drop_hit_pp"] = (df["retain_drop_hit"] * 100.0).round(4)
     df["forget_drop_hit_pp"] = (df["forget_drop_hit"] * 100.0).round(4)
     df["retain_drop_ndcg_pp"] = (df["retain_drop_ndcg"] * 100.0).round(4)
@@ -157,7 +156,6 @@ def select_top_configs(train_df, k_val, num_top_models):
     if train_df is None or train_df.empty or "K" not in train_df.columns:
         return None
 
-    # FIX: Exclusively use base_retain_Hit to match the logic from your other scripts exactly
     sort_metric = "base_retain_Hit"
 
     rank_df = (
@@ -195,11 +193,9 @@ def select_method_row(df, metric, threshold, method):
     if mdf.empty:
         return None
 
-    # FIX: Because we applied .round(4) earlier, <= safely captures exact boundaries without float bugs
     constrained = mdf[mdf[retain_col] <= threshold].copy()
     
     if not constrained.empty:
-        # FIX: Complete tie-breaker logic. If forget drops tie, pick the one with the smallest retain drop.
         return constrained.sort_values(
             [forget_col, retain_col, "unlearn_iters"],
             ascending=[False, True, True],
@@ -316,7 +312,7 @@ def build_html(chart_data, alerts, num_top_models):
         .subtitle {{ color: var(--muted); margin: 0 0 18px; }}
         .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04); }}
         .controls {{ display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }}
-        .control-group {{ min-width: 220px; }}
+        .control-group {{ min-width: 200px; }}
         .control-group h3 {{ margin: 0 0 8px; font-size: 14px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.6px; }}
         .radio-row {{ display: flex; flex-wrap: wrap; gap: 10px; }}
         .radio-pill {{ display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; user-select: none; }}
@@ -334,7 +330,8 @@ def build_html(chart_data, alerts, num_top_models):
         .chart-card {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }}
         .chart-title {{ margin: 0 0 8px; font-size: 16px; font-weight: 700; }}
         .chart-note {{ margin: 0 0 12px; font-size: 13px; color: var(--muted); }}
-        .chart-box {{ width: 100%; min-height: 420px; }}
+        /* Increased min-height to accommodate subplots */
+        .chart-box {{ width: 100%; min-height: 550px; }}
         .alerts ul {{ margin: 0; padding-left: 20px; }}
         .alerts li {{ margin-bottom: 6px; }}
     </style>
@@ -342,7 +339,7 @@ def build_html(chart_data, alerts, num_top_models):
 <body>
 <div class="container">
     <h1>Forget Comparison Dashboard</h1>
-    <p class="subtitle">Top {num_top_models} models from train phase results. Solid line = Normal, dashed line = Demography. Legend can hide individual methods.</p>
+    <p class="subtitle">Top {num_top_models} models. Subplots show base performance (top) and Demographic Bias Gap (bottom).</p>
 
     <div class="panel controls">
         <div class="control-group">
@@ -358,15 +355,17 @@ def build_html(chart_data, alerts, num_top_models):
             </div>
         </div>
         <div class="control-group">
-            <h3>Mode</h3>
+            <h3>Raw Lines Mode</h3>
             <div class="mode-checklist">
                 <label class="radio-pill"><input type="checkbox" name="mode" value="Normal" checked> Normal</label>
-                <label class="radio-pill"><input type="checkbox" name="mode" value="Demography" checked> Demography</label>
+                <label class="radio-pill"><input type="checkbox" name="mode" value="Demography"> Demography</label>
             </div>
         </div>
         <div class="control-group">
-            <h3>Info</h3>
-            <div class="top-note">Threshold and K only change the selected run. Mode checkboxes toggle which mode is visible in the chart.</div>
+            <h3>X-Axis Range</h3>
+            <div class="radio-row">
+                <label class="radio-pill"><input type="checkbox" id="include20"> Include 20% Split</label>
+            </div>
         </div>
     </div>
 
@@ -381,12 +380,12 @@ def build_html(chart_data, alerts, num_top_models):
         <div class="chart-grid">
             <div class="chart-card">
                 <div class="chart-title">Hit: Retain Drop</div>
-                <div class="chart-note">Use pp units. Higher line means more collateral damage on retain users.</div>
+                <div class="chart-note">Use pp units. Higher line means more collateral damage. Bottom chart = Demography minus Normal.</div>
                 <div id="Hit-retain" class="chart-box"></div>
             </div>
             <div class="chart-card">
                 <div class="chart-title">Hit: Forget Drop</div>
-                <div class="chart-note">Best row per method under the selected retain-drop threshold.</div>
+                <div class="chart-note">Best row per method under threshold. Bottom chart = Demography minus Normal.</div>
                 <div id="Hit-forget" class="chart-box"></div>
             </div>
         </div>
@@ -396,12 +395,12 @@ def build_html(chart_data, alerts, num_top_models):
         <div class="chart-grid">
             <div class="chart-card">
                 <div class="chart-title">NDCG: Retain Drop</div>
-                <div class="chart-note">Use pp units. Lower is safer on retain side.</div>
+                <div class="chart-note">Use pp units. Bottom chart = Demography minus Normal.</div>
                 <div id="NDCG-retain" class="chart-box"></div>
             </div>
             <div class="chart-card">
                 <div class="chart-title">NDCG: Forget Drop</div>
-                <div class="chart-note">Best row per method under the selected retain-drop threshold.</div>
+                <div class="chart-note">Best row per method under threshold. Bottom chart = Demography minus Normal.</div>
                 <div id="NDCG-forget" class="chart-box"></div>
             </div>
         </div>
@@ -422,34 +421,94 @@ function currentK() {{
     return document.querySelector('input[name="kval"]:checked').value;
 }}
 
-function activeModes() {{
-    return Array.from(document.querySelectorAll('input[name="mode"]:checked')).map(el => el.value);
+function getInclude20() {{
+    return document.getElementById('include20').checked;
 }}
 
-function makeTraces(metric, dropType, threshold, kVal, activeModesSet) {{
+function activeModes() {{
+    return new Set(Array.from(document.querySelectorAll('input[name="mode"]:checked')).map(el => el.value));
+}}
+
+function makeTraces(metric, dropType, threshold, kVal, modes, include20) {{
     const block = (((chartData[metric] || {{}})[dropType] || {{}})[String(threshold)] || {{}})[String(kVal)] || {{}};
     const traces = [];
-    
-    const firstActiveMode = Array.from(activeModesSet)[0];
+    const firstActiveMode = Array.from(modes)[0];
 
+    // 1. Generate Main Traces (Top Plot)
     for (const mode of Object.keys(block)) {{
+        if (!modes.has(mode)) continue; // Respect the checkbox toggle
+
         for (const method of methods) {{
             const series = (block[mode] || {{}})[method];
             if (!series || !series.x || series.x.length === 0) continue;
+
+            let x = [];
+            let y = [];
+            for (let i = 0; i < series.x.length; i++) {{
+                if (!include20 && series.x[i] === 20) continue;
+                x.push(series.x[i]);
+                y.push(series.y[i]);
+            }}
+            if (x.length === 0) continue;
+
             traces.push({{
-                x: series.x,
-                y: series.y,
+                x: x,
+                y: y,
+                xaxis: 'x',
+                yaxis: 'y',
                 type: 'scatter',
                 mode: 'lines+markers',
-                name: method,
-                legendgroup: method,
-                showlegend: mode === firstActiveMode,
-                meta: {{ mode: mode, method: method }},
+                name: method + (mode === 'Demography' ? ' (Demo)' : ''),
+                legendgroup: method, // Master toggle link
+                showlegend: mode === firstActiveMode, // Prevents duplicate legends
+                meta: {{ mode: mode, method: method, isMain: true }},
                 line: {{ color: colors[method], width: 3, dash: modeStyles[mode].dash }},
                 marker: {{ size: 7 }},
-                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Threshold: ' + threshold + '<br>K: ' + kVal + '<br>Forget %: %{{x}}%<br>Drop: %{{y:.2f}} pp<extra></extra>'
+                hovertemplate: 'Mode: ' + mode + '<br>Method: ' + method + '<br>Forget %: %{{x}}%<br>Drop: %{{y:.2f}} pp<extra></extra>'
             }});
         }}
+    }}
+
+    // 2. Generate Delta Traces (Bottom Plot: Demo - Normal)
+    const normBlock = block['Normal'] || {{}};
+    const demoBlock = block['Demography'] || {{}};
+    
+    for (const method of methods) {{
+        const normSeries = normBlock[method];
+        const demoSeries = demoBlock[method];
+        if (!normSeries || !demoSeries) continue;
+        
+        const normMap = new Map();
+        normSeries.x.forEach((xVal, i) => normMap.set(xVal, normSeries.y[i]));
+        
+        let deltaX = [];
+        let deltaY = [];
+        
+        demoSeries.x.forEach((xVal, i) => {{
+            if (!include20 && xVal === 20) return;
+            if (normMap.has(xVal)) {{
+                deltaX.push(xVal);
+                deltaY.push(demoSeries.y[i] - normMap.get(xVal));
+            }}
+        }});
+        
+        if (deltaX.length === 0) continue;
+
+        traces.push({{
+            x: deltaX,
+            y: deltaY,
+            xaxis: 'x2',
+            yaxis: 'y2',
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: method + ' (Delta)',
+            legendgroup: method, // Master toggle link
+            showlegend: false,
+            meta: {{ mode: 'Delta', method: method, isMain: false }},
+            line: {{ color: colors[method], width: 2, dash: 'solid' }},
+            marker: {{ size: 5 }},
+            hovertemplate: 'Δ (Demo - Norm)<br>Method: ' + method + '<br>Forget %: %{{x}}%<br>Diff: %{{y:.2f}} pp<extra></extra>'
+        }});
     }}
 
     return traces;
@@ -460,17 +519,25 @@ function layoutFor(title) {{
         title: {{ text: title, font: {{ size: 15 }} }},
         template: 'plotly_white',
         margin: {{ l: 60, r: 20, t: 50, b: 50 }},
-        height: 420,
-        legend: {{ orientation: 'h', y: -0.2, x: 0, groupclick: 'togglegroup' }},
-        xaxis: {{ title: 'Forget percentage' }},
-        yaxis: {{ title: 'Drop (pp)' }},
+        height: 550, // Increased to fit subplots comfortably
+        legend: {{ orientation: 'h', y: -0.15, x: 0, groupclick: 'togglegroup' }},
+        grid: {{ rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' }},
+        
+        // Top Plot Configuration
+        yaxis: {{ title: 'Drop (pp)', domain: [0.38, 1] }},
+        xaxis: {{ anchor: 'y', domain: [0, 1], showticklabels: false }}, 
+        
+        // Bottom Plot (Delta) Configuration
+        yaxis2: {{ title: 'Δ Demo-Norm', domain: [0, 0.28], zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 2 }},
+        xaxis2: {{ title: 'Forget percentage', anchor: 'y2', domain: [0, 1], matches: 'x' }}
     }};
 }}
 
 function renderCharts() {{
     const threshold = currentThreshold();
     const kVal = currentK();
-    const modes = new Set(activeModes());
+    const modes = activeModes();
+    const include20 = getInclude20();
 
     const configs = [
         ['Hit-retain', 'Hit', 'retain', 'Hit: Retain Drop'],
@@ -480,7 +547,7 @@ function renderCharts() {{
     ];
 
     for (const [divId, metric, dropType, title] of configs) {{
-        const traces = makeTraces(metric, dropType, threshold, kVal, modes).filter(trace => trace.meta && modes.has(trace.meta.mode));
+        const traces = makeTraces(metric, dropType, threshold, kVal, modes, include20);
         Plotly.react(divId, traces, layoutFor(title), {{ responsive: true, displaylogo: false }});
     }}
 }}
@@ -502,6 +569,7 @@ function switchTab(tabName) {{
 document.querySelectorAll('input[name="threshold"]').forEach(el => el.addEventListener('change', renderCharts));
 document.querySelectorAll('input[name="kval"]').forEach(el => el.addEventListener('change', renderCharts));
 document.querySelectorAll('input[name="mode"]').forEach(el => el.addEventListener('change', renderCharts));
+document.getElementById('include20').addEventListener('change', renderCharts);
 
 window.addEventListener('resize', () => {{
     ['Hit-retain', 'Hit-forget', 'NDCG-retain', 'NDCG-forget'].forEach(id => {{
