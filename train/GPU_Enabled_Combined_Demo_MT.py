@@ -1115,8 +1115,9 @@ def load_legacy_unlearn_progress():
         import pandas as pd
         df = pd.read_csv(legacy_path)
         if not df.empty:
-            df = df.drop_duplicates(subset=_PROG_COLS)
-            done = set(tuple(r) for r in df[_PROG_COLS].itertuples(index=False))
+            legacy_cols = ["train_lr", "gamma", "hidden_dim", "train_batch", "unlearn_lr", "unlearn_iters", "lambda_retain", "method"]
+            df = df.drop_duplicates(subset=legacy_cols)
+            done = set(tuple(r) for r in df[legacy_cols].itertuples(index=False))
             print(f"✓ Legacy unlearn progress loaded from {os.path.basename(legacy_path)}: {len(done):,} combos done")
             return done
     return set()
