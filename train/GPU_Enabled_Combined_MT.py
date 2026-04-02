@@ -1305,12 +1305,14 @@ all_top_configs = [
 
 
 def load_legacy_unlearn_progress():
-    legacy_path = os.path.join(RESULTS_BASE, "progress.csv")
+    legacy_path = os.path.join(RESULTS_BASE, "tuning_full_results.csv")
     if os.path.exists(legacy_path):
         df = pd.read_csv(legacy_path)
-        done = set(tuple(r) for r in df[_PROG_COLS].itertuples(index=False))
-        print(f"✓ Legacy unlearn progress: {len(done):,} combos done")
-        return done
+        if not df.empty:
+            df = df.drop_duplicates(subset=_PROG_COLS)
+            done = set(tuple(r) for r in df[_PROG_COLS].itertuples(index=False))
+            print(f"✓ Legacy unlearn progress loaded from {os.path.basename(legacy_path)}: {len(done):,} combos done")
+            return done
     return set()
 
 def config_fully_done(cfg, done_set):
