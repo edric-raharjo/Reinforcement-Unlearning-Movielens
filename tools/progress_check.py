@@ -25,6 +25,7 @@ LAMBDA_VALS = sorted(set(
 
 FIXED_METHODS = ["Ye_ApxI", "Ye_multi"]
 SWEPT_METHODS = ["New_True_inf", "New_Max"]
+GA_METHODS    = ["Gradient_Ascent"]
 
 TOP_PERCENT     = 0.1
 TOP_SELECTION_K = 10
@@ -40,7 +41,8 @@ _KEY_COLS        = ["train_lr", "gamma", "hidden_dim", "train_batch",
 
 _FIXED_COMBOS  = len(UNLEARN_LRS) * len(UNLEARN_ITERS) * len(FIXED_METHODS)
 _SWEPT_COMBOS  = len(UNLEARN_LRS) * len(UNLEARN_ITERS) * len(SWEPT_METHODS) * len(LAMBDA_VALS)
-COMBOS_PER_CFG = _FIXED_COMBOS + _SWEPT_COMBOS
+_GA_COMBOS     = len(UNLEARN_LRS) * len(UNLEARN_ITERS) * len(GA_METHODS)
+COMBOS_PER_CFG = _FIXED_COMBOS + _SWEPT_COMBOS + _GA_COMBOS
 
 
 def fmt_float(v):
@@ -254,7 +256,7 @@ def main():
     print(
         f"Combos per top config : {COMBOS_PER_CFG}  "
         f"= {len(UNLEARN_LRS)} ulrs x {len(UNLEARN_ITERS)} iters "
-        f"x ({len(FIXED_METHODS)} fixed-lambda + "
+        f"x ({len(FIXED_METHODS)} fixed-lambda + {len(GA_METHODS)} ga-lambda + "
         f"{len(SWEPT_METHODS)} swept-lambda x {len(LAMBDA_VALS)} lambda)"
     )
     print(f"Total combos expected  : {total_expected}  ({n_top} models x {COMBOS_PER_CFG})")
