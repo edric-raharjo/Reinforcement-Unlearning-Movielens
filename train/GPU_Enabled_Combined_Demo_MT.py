@@ -1148,7 +1148,7 @@ def load_train_results():
             pd.read_csv(TRAIN_RESULTS_PATH)
             .drop_duplicates(subset=_TRAIN_KEY_COLS, keep="last")
         )
-        print(f"✓ Train results: {len(df):,} rows")
+        print(f"✓ Train results loaded from {os.path.basename(TRAIN_RESULTS_PATH)}: {len(df):,} rows")
         return df.to_dict("records")
     print("  No train results — starting fresh")
     return []
@@ -1159,7 +1159,7 @@ def load_results():
         df = pd.read_csv(RESULTS_PATH)
         before = len(df)
         df = df.drop_duplicates(subset=_KEY_COLS, keep="last")
-        print(f"✓ Unlearn results: {len(df):,} rows ({before - len(df)} duplicates removed)")
+        print(f"✓ Unlearn results loaded from {os.path.basename(RESULTS_PATH)}: {len(df):,} rows ({before - len(df)} duplicates removed)")
         return df.to_dict("records")
     print("  No unlearn results — starting fresh")
     return []
@@ -1336,8 +1336,10 @@ if NUM_WORKERS > 1:
             f"Merged Phase 1 results not found at {TRAIN_RESULTS_MERGED}.\n"
             f"Run the merge script before launching Phase 2 workers."
         )
+    print(f"✓ Merged Phase 1 results loaded from {os.path.basename(TRAIN_RESULTS_MERGED)}")
     all_train_df = pd.read_csv(TRAIN_RESULTS_MERGED).drop_duplicates(subset=_TRAIN_KEY_COLS, keep="last")
 else:
+    print(f"✓ Using un-merged local Phase 1 results")
     all_train_df = pd.DataFrame(train_results).drop_duplicates(subset=_TRAIN_KEY_COLS, keep="last")
 
 rank_df = (
