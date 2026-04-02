@@ -1846,7 +1846,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 env=env_for,
                 policy_net=net_copy,
                 num_iters=u_iters,
-                batch_size=UNLEARN_BATCH,
+                batch_size=train_bs,
                 lr=u_lr,
                 gamma=gamma,
                 max_steps_per_ep=MAX_STEPS,
