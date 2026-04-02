@@ -1306,15 +1306,27 @@ all_top_configs = [
 
 def load_legacy_unlearn_progress():
     legacy_path = os.path.join(RESULTS_BASE, "tuning_full_results.csv")
-    if os.path.exists(legacy_path):
-        df = pd.read_csv(legacy_path)
+    done = set()
+    import pandas as pd
+    import glob
+    
+    # Load from merged file AND all existing worker files dynamically just in case user forgot to merge
+    all_files = glob.glob(os.path.join(RESULTS_BASE, "tuning_full_results*.csv"))
+    
+    for f in all_files:
+        df = pd.read_csv(f)
         if not df.empty:
             legacy_cols = ["train_lr", "gamma", "hidden_dim", "train_batch", "unlearn_lr", "unlearn_iters", "lambda_retain", "method"]
-            df = df.drop_duplicates(subset=legacy_cols)
-            done = set(tuple(r) for r in df[legacy_cols].itertuples(index=False))
-            print(f"✓ Legacy unlearn progress loaded from {os.path.basename(legacy_path)}: {len(done):,} combos done")
-            return done
-    return set()
+            if all(col in df.columns for col in legacy_cols):
+                df = df.drop_duplicates(subset=legacy_cols)
+                # Force precise python casting to guarantee perfect intersection matches
+                for r in df[legacy_cols].itertuples(index=False):
+                    done.add((
+                        float(r.train_lr), float(r.gamma), int(r.hidden_dim), int(r.train_batch),
+                        float(r.unlearn_lr), int(float(r.unlearn_iters)), float(r.lambda_retain), str(r.method)
+                    ))
+    print(f"✓ Legacy unlearn progress universally loaded: {len(done):,} combos done across {len(all_files)} files")
+    return done
 
 def config_fully_done(cfg, done_set):
     t_lr, gamma, hidden_dim, train_bs = cfg
