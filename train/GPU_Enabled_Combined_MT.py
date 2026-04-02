@@ -67,7 +67,10 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 # ---------------------------------------------------------------------------
 
 DATA_DIR = "C:/Bob/ml-1m"
-RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
+if FORGET_PERCENTAGE in [1, 20]:
+    RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
+else:
+    RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR = os.path.join(RESULTS_BASE, "models")
 F_BUF_PATH = os.path.join(RESULTS_BASE, "forget_buffer.pkl")
 
@@ -897,6 +900,92 @@ def unlearning_finetune_new_max(
 
     return last_lf, last_lr, last_lt
 
+
+# ---------------------------------------------------------------------------
+# Method 5 - Gradient Ascent
+# ---------------------------------------------------------------------------
+
+def unlearning_gradient_ascent(
+    env,
+    policy_net,
+    num_iters=2000,
+    batch_size=64,
+    lr=1e-4,
+    gamma=0.99,
+    max_steps_per_ep=30,
+    log_every=UNLEARN_LOG_INTERVAL,
+    loss_log_rows=None,
+    loss_log_meta=None,
+):
+    device = next(policy_net.parameters()).device
+    optimizer = torch.optim.Adam(policy_net.parameters(), lr=lr)
+
+    last_lf = last_lr = last_lt = 0.0
+
+    ep = 0
+    while ep < num_iters:
+        batch_log_probs, batch_returns = [], []
+
+        for _ in range(batch_size):
+            if ep >= num_iters:
+                break
+            state = env.reset()
+            lps, rews = [], []
+
+            for _ in range(max_steps_per_ep):
+                st = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
+                probs = F.softmax(policy_net(st), dim=-1).squeeze(0)
+                m = Categorical(probs)
+                a = m.sample()
+                next_state, rew, done = env.step(a.item())
+                lps.append(m.log_prob(a))
+                rews.append(rew)
+                if done:
+                    break
+                state = next_state
+
+            G, rets = 0.0, []
+            for r in reversed(rews):
+                G = r + gamma * G
+                rets.insert(0, G)
+            rets = torch.tensor(rets, dtype=torch.float32).to(device)
+            if len(rets) > 1:
+                rets = (rets - rets.mean()) / (rets.std() + 1e-10)
+
+            batch_log_probs.append(torch.stack(lps))
+            batch_returns.append(rets)
+            ep += 1
+
+        if not batch_log_probs:
+            break
+
+        loss_forget = sum((lp * r).sum() for lp, r in zip(batch_log_probs, batch_returns))
+        
+        optimizer.zero_grad()
+        loss_forget.backward()
+        optimizer.step()
+
+        last_lf = loss_forget.item()
+        last_lr = 0.0
+        last_lt = last_lf
+
+        if ep % log_every == 0 or ep >= num_iters:
+            print(
+                f" [Grad_Ascent] iter {ep:4d}/{num_iters} "
+                f"| L_forget={last_lf:.4f} | L_retain={last_lr:.4f} | L_total={last_lt:.4f}"
+            )
+            if loss_log_rows is not None and loss_log_meta is not None:
+                append_unlearn_loss_row(
+                    loss_log_rows,
+                    **loss_log_meta,
+                    iter_idx=ep,
+                    loss_forget=last_lf,
+                    loss_retain=last_lr,
+                    loss_total=last_lt,
+                )
+
+    return last_lf, last_lr, last_lt
+
 # ---------------------------------------------------------------------------
 # Filename helpers
 # ---------------------------------------------------------------------------
@@ -1238,7 +1327,11 @@ def config_fully_done(cfg, done_set):
         for lam in LAMBDA_VALS
         for method in sweep_methods
     )
-    return all_done_fixed and all_done_swept
+    all_done_ga = all(
+        (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, 0.0, "Gradient_Ascent") in done_set
+        for u_lr, u_iters in unlearn_configs
+    )
+    return all_done_fixed and all_done_swept and all_done_ga
 
 # Shared Dynamic Queue: Give all workers the full list of remaining configs
 legacy_done_set = load_legacy_unlearn_progress()
@@ -1292,8 +1385,12 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         for lam in LAMBDA_VALS
         for method in sweep_methods
     )
+    all_done_ga = all(
+        (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, 0.0, "Gradient_Ascent") in done_set
+        for u_lr, u_iters in unlearn_configs
+    )
 
-    if all_done_fixed and all_done_swept:
+    if all_done_fixed and all_done_swept and all_done_ga:
         print(
             f"\n[{cfg_idx + 1}/{len(top_configs)}] "
             f"tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — all combos done"
@@ -1358,7 +1455,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         print(f" ↩ Retain buffer built — {len(r_buf):,} steps")
 
     f_buf = f_buf_global
-    total_ul = len(unlearn_configs) * (2 + 2 * len(LAMBDA_VALS))
+    total_ul = len(unlearn_configs) * (2 + 2 * len(LAMBDA_VALS) + 1)
     ul_done = ul_skipped = 0
 
     for u_lr, u_iters in unlearn_configs:
@@ -1647,6 +1744,90 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 batch_size=UNLEARN_BATCH,
                 lambda_retain=lam,
                 lr=u_lr,
+                log_every=UNLEARN_LOG_INTERVAL,
+                loss_log_rows=unlearn_loss_log_rows,
+                loss_log_meta={
+                    "train_lr": t_lr,
+                    "gamma": gamma,
+                    "hidden_dim": hidden_dim,
+                    "train_batch": train_bs,
+                    "unlearn_lr": u_lr,
+                    "unlearn_iters": u_iters,
+                    "lambda_retain": lam,
+                    "method": method,
+                },
+            )
+            unlearn_time_s = round(time.time() - t_ul0, 2)
+            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+
+            ul_path = unlearned_model_path(
+                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+            )
+            if SAVE_UNLEARNED_MODELS:
+                torch.save(net_copy.state_dict(), ul_path)
+
+            append_eval_rows(
+                all_results,
+                net_after=net_copy,
+                baseline=baseline,
+                train_lr=t_lr,
+                gamma=gamma,
+                hidden_dim=hidden_dim,
+                train_batch=train_bs,
+                train_time_s=train_time_s,
+                trained_model_path=t_model_path,
+                unlearn_lr=u_lr,
+                unlearn_iters=u_iters,
+                lambda_retain=lam,
+                method=method,
+                unlearn_time_s=unlearn_time_s,
+                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                loss_forget_final=lf,
+                loss_retain_final=lr_,
+                loss_total_final=lt,
+            )
+
+            progress_df = mark_done(
+                progress_df, done_set,
+                t_lr, gamma, hidden_dim, train_bs,
+                u_lr, u_iters, lam, method,
+            )
+            ul_done += 1
+
+        # ==============================================================
+        # Method 5 - Gradient Ascent
+        # ==============================================================
+        lam = 0.0
+        method = "Gradient_Ascent"
+        combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
+        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+
+        if combo_key in done_set:
+            ul_skipped += 1
+            ul_done += 1
+            print(
+                f" [SKIP {ul_done:>4}/{total_ul}] "
+                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+            )
+        else:
+            print(
+                f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                end="",
+                flush=True,
+            )
+            net_copy = copy.deepcopy(net)
+            t_ul0 = time.time()
+            
+            env_for = MovieLensEnv(forget_trajectories, build_state_fn, candidate_movies)
+            lf, lr_, lt = unlearning_gradient_ascent(
+                env=env_for,
+                policy_net=net_copy,
+                num_iters=u_iters,
+                batch_size=UNLEARN_BATCH,
+                lr=u_lr,
+                gamma=gamma,
+                max_steps_per_ep=MAX_STEPS,
                 log_every=UNLEARN_LOG_INTERVAL,
                 loss_log_rows=unlearn_loss_log_rows,
                 loss_log_meta={
