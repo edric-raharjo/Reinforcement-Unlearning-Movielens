@@ -1378,6 +1378,9 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         continue
     # ---------------------------------------------
 
+    if cfg_idx % NUM_WORKERS != WORKER_ID:
+        continue
+
     fixed_methods = ["Ye_ApxI", "Ye_multi"]
     sweep_methods = ["New_True_inf", "New_Max"]
 

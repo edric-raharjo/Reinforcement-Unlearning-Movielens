@@ -1393,7 +1393,25 @@ unlearn_loss_log_rows = load_unlearn_loss_log()
 
 train_results = all_train_df.to_dict("records")
 
+# Create a locks directory to prevent workers from picking the same config
+LOCKS_DIR = os.path.join(RESULTS_BASE, "locks")
+os.makedirs(LOCKS_DIR, exist_ok=True)
+
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
+
+    # --- ATOMIC LOCK (Dynamic Queue mechanism) ---
+    lock_file = os.path.join(LOCKS_DIR, f"lock_{t_lr}_{gamma}_{hidden_dim}_{train_bs}.txt")
+    try:
+        # os.O_EXCL ensures this fails if the file already exists (claimed by other worker)
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        print(f"\n[{cfg_idx + 1}/{len(top_configs)}] tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — claimed by another worker. Skipping.")
+        continue
+    # ---------------------------------------------
+    
+    if cfg_idx % NUM_WORKERS != WORKER_ID:
+        continue
 
     fixed_methods = ["Ye_ApxI", "Ye_multi"]
     sweep_methods = ["New_True_inf", "New_Max"]
