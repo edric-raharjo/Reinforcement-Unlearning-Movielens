@@ -1109,6 +1109,15 @@ def mark_train_done(prog_df, done_set, t_lr, gamma, hidden_dim, train_bs):
     return prog_df
 
 
+def load_legacy_unlearn_progress():
+    legacy_path = os.path.join(RESULTS_BASE, "progress.csv")
+    if os.path.exists(legacy_path):
+        import pandas as pd
+        df = pd.read_csv(legacy_path)
+        done = set(tuple(r) for r in df[_PROG_COLS].itertuples(index=False))
+        return done
+    return set()
+
 def load_progress():
     if os.path.exists(PROGRESS_PATH):
         df = pd.read_csv(PROGRESS_PATH)
@@ -1371,6 +1380,8 @@ for i, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
 # ===========================================================================
 
 progress_df, done_set = load_progress()
+legacy_done_set = load_legacy_unlearn_progress()
+done_set.update(legacy_done_set)
 all_results = load_results()
 unlearn_loss_log_rows = load_unlearn_loss_log()
 
@@ -1392,8 +1403,12 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         for lam in LAMBDA_VALS
         for method in sweep_methods
     )
+    all_done_ga = all(
+        (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, 0.0, "Gradient_Ascent") in done_set
+        for u_lr, u_iters in unlearn_configs
+    )
 
-    if all_done_fixed and all_done_swept:
+    if all_done_fixed and all_done_swept and all_done_ga:
         print(
             f"\n[{cfg_idx + 1}/{len(top_configs)}] "
             f"tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — all combos done"

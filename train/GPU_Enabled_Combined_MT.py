@@ -1351,6 +1351,8 @@ print(f"{'#' * 72}")
 # ===========================================================================
 
 progress_df, done_set = load_progress()
+legacy_done_set = load_legacy_unlearn_progress()
+done_set.update(legacy_done_set)
 all_results = load_results()
 unlearn_loss_log_rows = load_unlearn_loss_log()
 
