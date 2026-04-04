@@ -589,7 +589,8 @@ def append_eval_rows(
         
         # FIX 3: Safely slice the first 4 elements of baseline so it never crashes, 
         # regardless of how many items the baseline dictionary holds.
-        bh_r, bn_r, bh_f, bn_f = baseline[K][:4] 
+        base_metrics = baseline.get(K, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+        bh_r, bn_r, bh_f, bn_f = base_metrics[:4] 
         
         all_results.append({
             "train_lr": train_lr,
