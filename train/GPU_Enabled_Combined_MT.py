@@ -1351,11 +1351,9 @@ def config_fully_done(cfg, done_set):
     )
     return all_done_fixed and all_done_swept and all_done_ga
 
-# Shared Dynamic Queue: Give all workers the full list of remaining configs
-legacy_done_set = load_legacy_unlearn_progress()
-top_configs = [cfg for cfg in all_top_configs if not config_fully_done(cfg, legacy_done_set)]
-
-print(f"Worker {WORKER_ID} sharing a dynamic queue of {len(top_configs)} remaining top configs")
+# Partition top configs across workers (round-robin keeps load balanced)
+top_configs = [cfg for i, cfg in enumerate(all_top_configs) if i % NUM_WORKERS == WORKER_ID]
+print(f"Worker {WORKER_ID} handling {len(top_configs)}/{len(all_top_configs)} top configs")
 
 print(f"\n{'#' * 72}")
 print(
@@ -1379,17 +1377,6 @@ LOCKS_DIR = os.path.join(RESULTS_BASE, "locks")
 os.makedirs(LOCKS_DIR, exist_ok=True)
 
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
-
-    # --- ATOMIC LOCK (Dynamic Queue mechanism) ---
-    lock_file = os.path.join(LOCKS_DIR, f"lock_{t_lr}_{gamma}_{hidden_dim}_{train_bs}.txt")
-    try:
-        # os.O_EXCL ensures this fails if the file already exists (claimed by other worker)
-        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-    except FileExistsError:
-        print(f"\n[{cfg_idx + 1}/{len(top_configs)}] tlr={t_lr} g={gamma} h={hidden_dim} bs={train_bs} — claimed by another worker. Skipping.")
-        continue
-    # ---------------------------------------------
 
     fixed_methods = ["Ye_ApxI", "Ye_multi"]
     sweep_methods = ["New_True_inf", "New_Max"]
