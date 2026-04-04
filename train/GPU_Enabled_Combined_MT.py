@@ -1380,9 +1380,6 @@ os.makedirs(LOCKS_DIR, exist_ok=True)
 
 for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
 
-    if cfg_idx % NUM_WORKERS != WORKER_ID:
-        continue
-
     # --- ATOMIC LOCK (Dynamic Queue mechanism) ---
     lock_file = os.path.join(LOCKS_DIR, f"lock_{t_lr}_{gamma}_{hidden_dim}_{train_bs}.txt")
     try:
