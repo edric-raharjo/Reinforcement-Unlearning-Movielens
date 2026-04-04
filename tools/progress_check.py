@@ -151,8 +151,11 @@ def main():
     print(f"Mode      : {mode_label}")
     print()
     if not base.exists():
-        print("  Folder does not exist yet.")
-        return
+        base = Path(f"C:/Bob/results/{forget_pct}_percent")
+        mode_label = "NORMAL (results)"
+        if not base.exists():
+            print("  Folder does not exist yet.")
+            return
 
     # ------------------------------------------------------------------ #
     # PHASE 1 -- Training                                                  #
