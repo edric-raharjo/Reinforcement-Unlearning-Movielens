@@ -52,7 +52,7 @@ SUMMARY_CSV  = os.path.join(ANALYZE_DIR, f"q_summary_{sys.argv[2] if len(sys.arg
 DETAILED_CSV = os.path.join(ANALYZE_DIR, f"q_detailed_movies_{sys.argv[2] if len(sys.argv)>2 else 'def'}.csv")
 
 DEVICE  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
+METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 
 def set_seed(seed):
     random.seed(seed)

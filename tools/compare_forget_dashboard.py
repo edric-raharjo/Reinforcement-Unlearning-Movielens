@@ -19,7 +19,7 @@ ALT_CANDIDATE_ROOTS = [
     Path("C:/Bob/results_demography"),
 ]
 
-METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
+METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 METRICS = ["Hit", "NDCG"]
 MODES = {
     "Normal": [1, 2, 3, 4, 5, 20],
@@ -33,6 +33,7 @@ PLOT_COLORS = {
     "Ye_multi": "#d97706",
     "New_True_inf": "#2563eb",
     "New_Max": "#dc2626",
+    "Gradient_Ascent": "#9333ea",
 }
 
 MODE_STYLES = {

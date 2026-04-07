@@ -93,7 +93,7 @@ DIAG_CSV = os.path.join(ANALYZE_DIR, f"diagnosis_stats_{THRESHOLD_STR}.csv")
 
 TOP_SELECTION_K = 10
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-METHODS         = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
+METHODS         = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 
 print(f"Device        : {DEVICE}")
 print(f"Forget %      : {FORGET_PERCENTAGE}")

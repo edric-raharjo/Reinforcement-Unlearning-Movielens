@@ -33,7 +33,7 @@ FORGET_PERCENTAGE = int(sys.argv[1])
 MAX_RETAIN_DROP   = float(sys.argv[2])
 TOLERANCE         = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-8
 
-METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
+METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 EVAL_K  = 10
 KS      = [1, 5, 10]
 

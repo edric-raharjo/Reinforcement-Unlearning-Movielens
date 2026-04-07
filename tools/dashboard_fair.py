@@ -19,12 +19,13 @@ else:
 os.makedirs(OUT_DIR, exist_ok=True)
 from plotly.offline import plot
 
-METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max"]
+METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 PARETO_COLORS = {
     "Ye_ApxI": "#16a34a", 
     "Ye_multi": "#d97706", 
     "New_True_inf": "#2563eb", 
-    "New_Max": "#dc2626"
+    "New_Max": "#dc2626",
+    "Gradient_Ascent": "#9333ea"
 }
 
 # Mapping for the side-by-side comparison chart
@@ -32,7 +33,8 @@ METHOD_DISPLAY_NAMES = {
     "Ye_ApxI": "Metode Terdahulu<br>(Single Env)",
     "Ye_multi": "Metode Terdahulu<br>(Multi Env)",
     "New_True_inf": "Metode yang<br>Diusulkan",
-    "New_Max": "Metode yang<br>Diusulkan (Max)"
+    "New_Max": "Metode yang<br>Diusulkan (Max)",
+    "Gradient_Ascent": "Gradient Ascent"
 }
 
 TOP_SELECTION_METRIC = "base_retain_Hit"
