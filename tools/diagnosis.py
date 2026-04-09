@@ -432,8 +432,10 @@ forget_coords = coords[:len(forget_mat)]
 retain_coords = coords[len(forget_mat):]
 
 def make_pca_fig():
+    n_cols = 2
+    n_rows = (len(METHODS) + n_cols - 1) // n_cols
     fig = make_subplots(
-        rows=2, cols=2,
+        rows=n_rows, cols=n_cols,
         subplot_titles=[f"PCA — {m}" for m in METHODS],
         horizontal_spacing=0.08,
         vertical_spacing=0.12
@@ -453,7 +455,7 @@ def make_pca_fig():
     )
 
     for idx, method in enumerate(METHODS):
-        r, c = divmod(idx, 2)
+        r, c = divmod(idx, n_cols)
         df_r = per_method_data[method]["retain"]
         d_map = dict(zip(df_r["uid"], df_r["damaged"]))
         d_mask  = np.array([d_map.get(u, False) for u in retain_uids])
@@ -503,7 +505,7 @@ def make_pca_fig():
         paper_bgcolor=PANEL,
         plot_bgcolor=PANEL,
         font_color=TEXT,
-        height=650,
+        height=max(650, 300 * n_rows + 100),
         margin=dict(l=40, r=40, t=60, b=40),
         legend=dict(
             bgcolor=PANEL,
@@ -516,7 +518,15 @@ def make_pca_fig():
     return fig
 
 def make_binned_distribution_fig(sim_col, title):
-    fig = make_subplots(rows=2, cols=2, subplot_titles=[f"{m}" for m in METHODS], horizontal_spacing=0.08, vertical_spacing=0.14)
+    n_cols = 2
+    n_rows = (len(METHODS) + n_cols - 1) // n_cols
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[f"{m}" for m in METHODS],
+        horizontal_spacing=0.08,
+        vertical_spacing=0.14,
+    )
     
     # Calculate global min/max for dynamic binning
     all_vals = []
@@ -532,7 +542,7 @@ def make_binned_distribution_fig(sim_col, title):
     bin_size = (v_max - v_min) / SIMILARITY_BINS
 
     for idx, method in enumerate(METHODS):
-        r, c = divmod(idx, 2)
+        r, c = divmod(idx, n_cols)
         if method not in per_method_data: continue
         df_r = per_method_data[method]["retain"]
         
@@ -562,7 +572,15 @@ def make_binned_distribution_fig(sim_col, title):
             if len(vals) == 0: continue
             fig.add_trace(go.Histogram(x=vals, name=label, marker_color=color, opacity=0.75, xbins=dict(start=v_min, end=v_max, size=bin_size), histnorm='probability', showlegend=(idx == 0), legendgroup=label), row=r+1, col=c+1)
 
-    fig.update_layout(paper_bgcolor=PANEL, plot_bgcolor=PANEL, font_color=TEXT, height=650, barmode="group", margin=dict(l=40, r=40, t=60, b=40), legend=dict(bgcolor=PANEL, bordercolor=GRIDCOL, borderwidth=1))
+    fig.update_layout(
+        paper_bgcolor=PANEL,
+        plot_bgcolor=PANEL,
+        font_color=TEXT,
+        height=max(650, 300 * n_rows + 100),
+        barmode="group",
+        margin=dict(l=40, r=40, t=60, b=40),
+        legend=dict(bgcolor=PANEL, bordercolor=GRIDCOL, borderwidth=1),
+    )
     tick_vals = np.linspace(v_min, v_max, SIMILARITY_BINS + 1)
     fig.update_xaxes(gridcolor=GRIDCOL, zerolinecolor=GRIDCOL, tickvals=tick_vals)
     return fig
