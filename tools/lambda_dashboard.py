@@ -157,13 +157,11 @@ def load_all_rows() -> pd.DataFrame:
 
     all_df = pd.concat(frames, ignore_index=True)
     all_df["lambda_retain"] = pd.to_numeric(all_df["lambda_retain"], errors="coerce")
-    all_df = all_df.dropna(subset=["lambda_retain", "retain_drop_pp", "forget_drop_pp", "forget_quality_pp"])
     all_df = all_df[all_df["method"].isin(METHODS)].copy()
     all_df["K"] = pd.to_numeric(all_df["K"], errors="coerce")
     all_df["forget_pct"] = pd.to_numeric(all_df["forget_pct"], errors="coerce")
-    all_df = all_df.dropna(subset=["K", "forget_pct"])
-    all_df["K"] = all_df["K"].astype(int)
-    all_df["forget_pct"] = all_df["forget_pct"].astype(int)
+    all_df["K"] = all_df["K"].astype("Int64")
+    all_df["forget_pct"] = all_df["forget_pct"].astype("Int64")
     if "mode" not in all_df.columns:
         all_df["mode"] = MODE_DIR
     return all_df
@@ -367,6 +365,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             rows.forEach(row => {{
                 const method = row.method;
                 if (!byMethod.has(method)) return;
+                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_drop_pp)) || !Number.isFinite(Number(row.forget_quality_pp))) return;
                 const lambdaKey = String(row.lambda_retain);
                 const current = byMethod.get(method).get(lambdaKey);
                 if (!current || Number(row.forget_drop_pp) > Number(current.forget_drop_pp)) {{
@@ -404,6 +403,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             const groups = new Map();
 
             rows.forEach(row => {{
+                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_quality_pp))) return;
                 const lambdaKey = String(row.lambda_retain);
                 if (!groups.has(lambdaKey)) groups.set(lambdaKey, []);
                 groups.get(lambdaKey).push(row);
