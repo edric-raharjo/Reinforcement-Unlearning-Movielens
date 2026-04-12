@@ -36,6 +36,7 @@ BASE_RESULTS_DEMO = Path("D:/Bob_Skripsi_Do Not Delete/results_demography")
 
 MODE = os.environ.get("RUN_MODE", "Normal")
 MODE_DIR = "Demography" if MODE == "Demography" else "Normal"
+MODE_OPTIONS = ["Normal", "Demography"]
 
 METHODS = ["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"]
 METHOD_COLORS = {
@@ -58,14 +59,12 @@ def normalize_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return df
 
 
-def results_root() -> Path:
-    if MODE == "Demography":
-        return BASE_RESULTS_DEMO
-    return BASE_RESULTS
+def results_root(mode: str) -> Path:
+    return BASE_RESULTS_DEMO if mode == "Demography" else BASE_RESULTS
 
 
-def resolve_results_path(forget_pct: int) -> Path | None:
-    roots = [results_root(), BASE_ANALYSIS, BASE_RESULTS, BASE_RESULTS_DEMO]
+def resolve_results_path(mode: str, forget_pct: int) -> Path | None:
+    roots = [results_root(mode), BASE_ANALYSIS, BASE_RESULTS, BASE_RESULTS_DEMO]
     seen: set[Path] = set()
 
     for root in roots:
@@ -75,10 +74,10 @@ def resolve_results_path(forget_pct: int) -> Path | None:
 
         candidates = [
             root / f"{forget_pct}_percent" / "tuning_full_results.csv",
-            root / MODE_DIR / f"{forget_pct}_percent" / "tuning_full_results.csv",
-            root / MODE_DIR / f"{forget_pct}_percent" / "analyze" / "overall" / "tuning_full_results.csv",
+            root / mode / f"{forget_pct}_percent" / "tuning_full_results.csv",
+            root / mode / f"{forget_pct}_percent" / "analyze" / "overall" / "tuning_full_results.csv",
             root / f"{forget_pct}_percent" / "analyze" / "overall" / "tuning_full_results.csv",
-            root / MODE_DIR / f"{forget_pct}_percent" / "analyze" / "diagnose" / "tuning_full_results.csv",
+            root / mode / f"{forget_pct}_percent" / "analyze" / "diagnose" / "tuning_full_results.csv",
             root / f"{forget_pct}_percent" / "analyze" / "diagnose" / "tuning_full_results.csv",
         ]
 
@@ -92,15 +91,15 @@ def resolve_results_path(forget_pct: int) -> Path | None:
         for candidate in root.rglob("tuning_full_results.csv"):
             parts = {part.lower() for part in candidate.parts}
             if f"{forget_pct}_percent" in parts:
-                has_demo = any("demography" in part for part in candidate.parts)
-                if (MODE == "Demography" and has_demo) or (MODE != "Demography" and not has_demo):
+                has_demo = any("demography" in part.lower() for part in candidate.parts)
+                if (mode == "Demography" and has_demo) or (mode != "Demography" and not has_demo):
                     return candidate
 
     return None
 
 
-def load_results_for_pct(forget_pct: int) -> pd.DataFrame:
-    results_path = resolve_results_path(forget_pct)
+def load_results_for_pct(mode: str, forget_pct: int) -> pd.DataFrame:
+    results_path = resolve_results_path(mode, forget_pct)
     if results_path is None:
         return pd.DataFrame()
 
@@ -124,6 +123,7 @@ def load_results_for_pct(forget_pct: int) -> pd.DataFrame:
     if df.empty:
         return df
 
+    df["mode"] = mode
     df["forget_pct"] = int(forget_pct)
     df["retain_drop_pp"] = (df["base_retain_Hit"] - df["retain_Hit"]) * 100.0
     df["forget_drop_pp"] = (df["base_forget_Hit"] - df["forget_Hit"]) * 100.0
@@ -142,13 +142,11 @@ def load_results_for_pct(forget_pct: int) -> pd.DataFrame:
 
 def load_all_rows() -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
-    seen_pcts: list[int] = []
-
-    for pct in DEFAULT_PCTS:
-        df = load_results_for_pct(pct)
-        if not df.empty:
-            frames.append(df)
-            seen_pcts.append(pct)
+    for mode in MODE_OPTIONS:
+        for pct in DEFAULT_PCTS:
+            df = load_results_for_pct(mode, pct)
+            if not df.empty:
+                frames.append(df)
 
     if not frames:
         return pd.DataFrame()
@@ -162,6 +160,8 @@ def load_all_rows() -> pd.DataFrame:
     all_df = all_df.dropna(subset=["K", "forget_pct"])
     all_df["K"] = all_df["K"].astype(int)
     all_df["forget_pct"] = all_df["forget_pct"].astype(int)
+    if "mode" not in all_df.columns:
+        all_df["mode"] = MODE_DIR
     return all_df
 
 
@@ -172,11 +172,13 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
     controls_pct = "".join(
         f'<option value="{pct}">{pct}%</option>' for pct in available_pcts
     )
+    controls_mode = "".join(f'<option value="{mode}">{mode}</option>' for mode in MODE_OPTIONS)
     controls_k = "".join(f'<option value="{k}">{k}</option>' for k in KS)
     controls_thr = "".join(f'<option value="{thr}">{thr} pp</option>' for thr in THRESHOLDS)
 
     method_colors = json.dumps(METHOD_COLORS)
     methods = json.dumps(METHODS)
+    mode_options = json.dumps(MODE_OPTIONS)
     pcts = json.dumps(available_pcts)
 
     return f"""<!DOCTYPE html>
@@ -235,6 +237,10 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             {f'<div style="margin:0 0 18px;padding:12px 14px;border-radius:12px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-weight:600;">{warning_message}</div>' if warning_message else ''}
             <div class="controls">
                 <div class="control">
+                    <label for="modeSelect">Mode</label>
+                    <select id="modeSelect">{controls_mode}</select>
+                </div>
+                <div class="control">
                     <label for="forgetPct">Forget percentage</label>
                     <select id="forgetPct">{controls_pct}</select>
                 </div>
@@ -287,12 +293,15 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         const METHODS = {methods};
         const COLORS = {method_colors};
         const DATA = {payload};
+        const MODE_OPTIONS = {mode_options};
         const AVAILABLE_PCTS = {pcts};
 
+        const modeEl = document.getElementById('modeSelect');
         const forgetPctEl = document.getElementById('forgetPct');
         const kValueEl = document.getElementById('kValue');
         const retainThresholdEl = document.getElementById('retainThreshold');
 
+        function getSelectedMode() {{ return modeEl.value; }}
         function getSelectedPct() {{ return Number(forgetPctEl.value); }}
         function getSelectedK() {{ return Number(kValueEl.value); }}
         function getSelectedThreshold() {{ return Number(retainThresholdEl.value); }}
@@ -303,10 +312,12 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         }}
 
         function filterRows() {{
+            const mode = getSelectedMode();
             const pct = getSelectedPct();
             const kVal = getSelectedK();
             const threshold = getSelectedThreshold();
             return DATA.filter(row =>
+                row.mode === mode &&
                 Number(row.forget_pct) === pct &&
                 Number(row.K) === kVal &&
                 Number(row.retain_drop_pp) <= threshold
@@ -459,13 +470,15 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         forgetPctEl.addEventListener('change', renderPlots);
         kValueEl.addEventListener('change', renderPlots);
         retainThresholdEl.addEventListener('change', renderPlots);
+        modeEl.addEventListener('change', renderPlots);
 
         function setDefault(selectEl, value) {{
-            const options = Array.from(selectEl.options).map(opt => Number(opt.value));
-            const match = options.includes(value) ? value : options[0];
-            selectEl.value = String(match);
+            const options = Array.from(selectEl.options).map(opt => String(opt.value));
+            const match = options.includes(String(value)) ? String(value) : options[0];
+            selectEl.value = match;
         }}
 
+        setDefault(modeEl, {json.dumps(MODE_DIR)});
         setDefault(forgetPctEl, AVAILABLE_PCTS[0]);
         setDefault(kValueEl, 10);
         setDefault(retainThresholdEl, 5);
