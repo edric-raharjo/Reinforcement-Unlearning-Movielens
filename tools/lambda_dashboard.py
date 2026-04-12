@@ -151,9 +151,7 @@ def load_all_rows() -> pd.DataFrame:
             seen_pcts.append(pct)
 
     if not frames:
-        raise FileNotFoundError(
-            f"No tuning_full_results.csv files found for mode={MODE_DIR}."
-        )
+        return pd.DataFrame()
 
     all_df = pd.concat(frames, ignore_index=True)
     all_df["lambda_retain"] = pd.to_numeric(all_df["lambda_retain"], errors="coerce")
@@ -167,7 +165,7 @@ def load_all_rows() -> pd.DataFrame:
     return all_df
 
 
-def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Path) -> str:
+def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Path, warning_message: str | None = None) -> str:
     records = data_df.to_dict(orient="records")
     payload = json.dumps(records, default=float)
 
@@ -234,6 +232,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 Mode: <b>{MODE_DIR}</b> &middot; the dashboard preloads all matching rows once and updates the charts in-browser.
                 Forget quality is defined as <b>forget_drop - retain_drop</b> in percentage points.
             </p>
+            {f'<div style="margin:0 0 18px;padding:12px 14px;border-radius:12px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-weight:600;">{warning_message}</div>' if warning_message else ''}
             <div class="controls">
                 <div class="control">
                     <label for="forgetPct">Forget percentage</label>
@@ -345,10 +344,10 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                     marker: {{ color: COLORS[method] || '#64748b', size: 8 }},
                     customdata: entries.map(row => [row.forget_drop_pp, row.retain_drop_pp]),
                     hovertemplate:
-                        'lambda=%{x}<br>' +
-                        'forget quality=%{y:.2f} pp<br>' +
-                        'forget drop=%{customdata[0]:.2f} pp<br>' +
-                        'retain drop=%{customdata[1]:.2f} pp<extra></extra>',
+                        'lambda=%{{x}}<br>' +
+                        'forget quality=%{{y:.2f}} pp<br>' +
+                        'forget drop=%{{customdata[0]:.2f}} pp<br>' +
+                        'retain drop=%{{customdata[1]:.2f}} pp<extra></extra>',
                 }});
             }});
 
@@ -450,9 +449,9 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                     marker: {{ color: '#0f766e', size: 8 }},
                     customdata: avgRows.map(item => item.count),
                     hovertemplate:
-                        'lambda=%{x}<br>' +
-                        'avg forget quality=%{y:.2f} pp<br>' +
-                        'attempts=%{customdata}<extra></extra>',
+                        'lambda=%{{x}}<br>' +
+                        'avg forget quality=%{{y:.2f}} pp<br>' +
+                        'attempts=%{{customdata}}<extra></extra>',
                 }}], avgLayout, {{ responsive: true }});
             }}
         }}
@@ -480,14 +479,17 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
 
 def main() -> None:
     data_df = load_all_rows()
-    available_pcts = sorted({int(v) for v in data_df["forget_pct"].dropna().unique().tolist()})
-    if not available_pcts:
-        raise FileNotFoundError(f"No result rows found for mode={MODE_DIR}.")
+    if data_df.empty:
+        available_pcts = DEFAULT_PCTS
+        warning_message = f"No tuning_full_results.csv files were found for mode={MODE_DIR}. The dashboard shell was generated without data."
+    else:
+        available_pcts = sorted({int(v) for v in data_df["forget_pct"].dropna().unique().tolist()})
+        warning_message = None
 
     output_path = BASE_ANALYSIS / MODE_DIR / "lambda_dashboard.html"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    html = build_html(data_df, available_pcts, output_path)
+    html = build_html(data_df, available_pcts, output_path, warning_message)
     output_path.write_text(html, encoding="utf-8")
     print(f"Lambda dashboard written to {output_path}")
     print(f"Loaded rows: {len(data_df):,}")
