@@ -330,6 +330,17 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             return DATA.filter(row => row.mode === mode);
         }}
 
+        function usableRowsForMode(mode) {{
+            return availableRowsForMode(mode).filter(row =>
+                Number.isFinite(Number(row.lambda_retain)) &&
+                Number.isFinite(Number(row.K)) &&
+                Number.isFinite(Number(row.forget_pct)) &&
+                Number.isFinite(Number(row.retain_drop_pp)) &&
+                Number.isFinite(Number(row.forget_drop_pp)) &&
+                Number.isFinite(Number(row.forget_quality_pp))
+            );
+        }}
+
         function smallestThresholdAtLeast(value) {{
             const numeric = Number(value);
             const candidates = [0, 1, 2, 5, 10].filter(thr => thr >= numeric);
@@ -341,15 +352,24 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         }}
 
         function applyModeDefaults(mode) {{
-            const rows = availableRowsForMode(mode);
+            const rows = usableRowsForMode(mode);
             if (!rows.length) return;
 
-            const first = rows[0];
+            const first = rows
+                .slice()
+                .sort((a, b) =>
+                    Number(a.forget_pct) - Number(b.forget_pct) ||
+                    Number(a.K) - Number(b.K) ||
+                    Number(a.lambda_retain) - Number(b.lambda_retain)
+                )[0];
+
             const pcts = [...new Set(rows.map(row => Number(row.forget_pct)))].sort((a, b) => a - b);
             setOptions(forgetPctEl, pcts, '%');
             forgetPctEl.value = String(Number(first.forget_pct));
 
-            const kValues = [...new Set(rows.filter(row => Number(row.forget_pct) === Number(first.forget_pct)).map(row => Number(row.K)))].sort((a, b) => a - b);
+            const kValues = [...new Set(
+                rows.filter(row => Number(row.forget_pct) === Number(first.forget_pct)).map(row => Number(row.K))
+            )].sort((a, b) => a - b);
             setOptions(kValueEl, kValues, '');
             kValueEl.value = String(Number(first.K));
 
