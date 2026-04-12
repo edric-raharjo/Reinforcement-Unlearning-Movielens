@@ -129,13 +129,21 @@ def load_results_for_pct(mode: str, forget_pct: int) -> pd.DataFrame:
 
     df["mode"] = mode
     df["forget_pct"] = int(forget_pct)
-    df["retain_drop_pp"] = (df["base_retain_Hit"] - df["retain_Hit"]) * 100.0
-    df["forget_drop_pp"] = (df["base_forget_Hit"] - df["forget_Hit"]) * 100.0
-    df["forget_quality_pp"] = df["forget_drop_pp"] - df["retain_drop_pp"]
+    df["retain_drop_rel"] = np.where(
+        df["base_retain_Hit"] > 0,
+        ((df["base_retain_Hit"] - df["retain_Hit"]) / df["base_retain_Hit"]) * 100.0,
+        np.nan,
+    )
+    df["forget_drop_rel"] = np.where(
+        df["base_forget_Hit"] > 0,
+        ((df["base_forget_Hit"] - df["forget_Hit"]) / df["base_forget_Hit"]) * 100.0,
+        np.nan,
+    )
+    df["forget_quality_rel"] = df["forget_drop_rel"] - df["retain_drop_rel"]
 
     keep_cols = [
         "forget_pct", "K", "method", "lambda_retain",
-        "retain_drop_pp", "forget_drop_pp", "forget_quality_pp",
+        "retain_drop_rel", "forget_drop_rel", "forget_quality_rel",
         "train_lr", "gamma", "hidden_dim", "train_batch",
         "unlearn_lr", "unlearn_iters",
         "base_retain_Hit", "base_forget_Hit", "retain_Hit", "forget_Hit",
@@ -176,7 +184,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
     )
     controls_mode = "".join(f'<option value="{mode}">{mode}</option>' for mode in MODE_OPTIONS)
     controls_k = "".join(f'<option value="{k}">{k}</option>' for k in KS)
-    controls_thr = "".join(f'<option value="{thr}">{thr} pp</option>' for thr in THRESHOLDS)
+    controls_thr = "".join(f'<option value="{thr}">{thr}%</option>' for thr in THRESHOLDS)
 
     method_colors = json.dumps(METHOD_COLORS)
     methods = json.dumps(METHODS)
@@ -322,7 +330,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 row.mode === mode &&
                 Number(row.forget_pct) === pct &&
                 Number(row.K) === kVal &&
-                Number(row.retain_drop_pp) <= threshold
+                Number(row.retain_drop_rel) <= threshold
             );
         }}
 
@@ -335,16 +343,14 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 Number.isFinite(Number(row.lambda_retain)) &&
                 Number.isFinite(Number(row.K)) &&
                 Number.isFinite(Number(row.forget_pct)) &&
-                Number.isFinite(Number(row.retain_drop_pp)) &&
-                Number.isFinite(Number(row.forget_drop_pp)) &&
-                Number.isFinite(Number(row.forget_quality_pp))
+                Number.isFinite(Number(row.retain_drop_rel)) &&
+                Number.isFinite(Number(row.forget_drop_rel)) &&
+                Number.isFinite(Number(row.forget_quality_rel))
             );
         }}
 
-        function smallestThresholdAtLeast(value) {{
-            const numeric = Number(value);
-            const candidates = [0, 1, 2, 5, 10].filter(thr => thr >= numeric);
-            return candidates.length ? candidates[0] : 10;
+        function defaultThresholdForRows(rows) {{
+            return Math.max(...THRESHOLDS);
         }}
 
         function setOptions(selectEl, values, suffix) {{
@@ -373,7 +379,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             setOptions(kValueEl, kValues, '');
             kValueEl.value = String(Number(first.K));
 
-            const threshold = smallestThresholdAtLeast(first.retain_drop_pp);
+            const threshold = defaultThresholdForRows(rows);
             retainThresholdEl.value = String(threshold);
         }}
 
@@ -385,10 +391,10 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             rows.forEach(row => {{
                 const method = row.method;
                 if (!byMethod.has(method)) return;
-                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_drop_pp)) || !Number.isFinite(Number(row.forget_quality_pp))) return;
+                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_drop_rel)) || !Number.isFinite(Number(row.forget_quality_rel))) return;
                 const lambdaKey = String(row.lambda_retain);
                 const current = byMethod.get(method).get(lambdaKey);
-                if (!current || Number(row.forget_drop_pp) > Number(current.forget_drop_pp)) {{
+                if (!current || Number(row.forget_drop_rel) > Number(current.forget_drop_rel)) {{
                     byMethod.get(method).set(lambdaKey, row);
                 }}
             }});
@@ -401,18 +407,18 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
 
                 traces.push({{
                     x: entries.map(row => Number(row.lambda_retain)),
-                    y: entries.map(row => Number(row.forget_quality_pp)),
+                    y: entries.map(row => Number(row.forget_quality_rel)),
                     type: 'scatter',
                     mode: 'lines+markers',
                     name: method,
                     line: {{ color: COLORS[method] || '#64748b', width: 3 }},
                     marker: {{ color: COLORS[method] || '#64748b', size: 8 }},
-                    customdata: entries.map(row => [row.forget_drop_pp, row.retain_drop_pp]),
+                    customdata: entries.map(row => [row.forget_drop_rel, row.retain_drop_rel]),
                     hovertemplate:
                         'lambda=%{{x}}<br>' +
-                        'forget quality=%{{y:.2f}} pp<br>' +
-                        'forget drop=%{{customdata[0]:.2f}} pp<br>' +
-                        'retain drop=%{{customdata[1]:.2f}} pp<extra></extra>',
+                        'forget quality=%{{y:.2f}}%<br>' +
+                        'forget drop=%{{customdata[0]:.2f}}%<br>' +
+                        'retain drop=%{{customdata[1]:.2f}}%<extra></extra>',
                 }});
             }});
 
@@ -423,7 +429,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             const groups = new Map();
 
             rows.forEach(row => {{
-                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_quality_pp))) return;
+                if (!Number.isFinite(Number(row.lambda_retain)) || !Number.isFinite(Number(row.forget_quality_rel))) return;
                 const lambdaKey = String(row.lambda_retain);
                 if (!groups.has(lambdaKey)) groups.set(lambdaKey, []);
                 groups.get(lambdaKey).push(row);
@@ -432,7 +438,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             const sorted = Array.from(groups.entries())
                 .map(([lambdaKey, items]) => {{
                     const lambdaValue = Number(lambdaKey);
-                    const avgQuality = items.reduce((sum, row) => sum + Number(row.forget_quality_pp), 0) / items.length;
+                    const avgQuality = items.reduce((sum, row) => sum + Number(row.forget_quality_rel), 0) / items.length;
                     return {{
                         lambda: lambdaValue,
                         avgQuality,
@@ -454,8 +460,8 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 return;
             }}
 
-            const best = rows.reduce((acc, row) => Number(row.forget_quality_pp) > Number(acc.forget_quality_pp) ? row : acc, rows[0]);
-            document.getElementById('bestQuality').textContent = formatMaybe(best.forget_quality_pp) + ' pp';
+            const best = rows.reduce((acc, row) => Number(row.forget_quality_rel) > Number(acc.forget_quality_rel) ? row : acc, rows[0]);
+            document.getElementById('bestQuality').textContent = formatMaybe(best.forget_quality_rel) + ' %';
         }}
 
         function renderPlots() {{
@@ -469,7 +475,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 template: 'plotly_white',
                 title: {{ text: 'Best Forget Quality by Lambda', font: {{ size: 18 }} }},
                 xaxis: {{ title: 'Lambda', zeroline: false }},
-                yaxis: {{ title: 'Forget Quality (pp)', zeroline: false }},
+                yaxis: {{ title: 'Forget Quality (%)', zeroline: false }},
                 margin: {{ l: 70, r: 24, t: 60, b: 60 }},
                 legend: {{ orientation: 'h', y: -0.18 }},
             }};
@@ -478,7 +484,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                 template: 'plotly_white',
                 title: {{ text: 'Average Forget Quality by Lambda', font: {{ size: 18 }} }},
                 xaxis: {{ title: 'Lambda', zeroline: false }},
-                yaxis: {{ title: 'Average Forget Quality (pp)', zeroline: false }},
+                yaxis: {{ title: 'Average Forget Quality (%)', zeroline: false }},
                 margin: {{ l: 70, r: 24, t: 60, b: 60 }},
                 showlegend: false,
             }};
@@ -516,7 +522,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
                     customdata: avgRows.map(item => item.count),
                     hovertemplate:
                         'lambda=%{{x}}<br>' +
-                        'avg forget quality=%{{y:.2f}} pp<br>' +
+                        'avg forget quality=%{{y:.2f}}%<br>' +
                         'attempts=%{{customdata}}<extra></extra>',
                 }}], avgLayout, {{ responsive: true }});
             }}
