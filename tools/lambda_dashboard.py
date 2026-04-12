@@ -324,6 +324,37 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
             );
         }}
 
+        function availableRowsForMode(mode) {{
+            return DATA.filter(row => row.mode === mode);
+        }}
+
+        function smallestThresholdAtLeast(value) {{
+            const numeric = Number(value);
+            const candidates = [0, 1, 2, 5, 10].filter(thr => thr >= numeric);
+            return candidates.length ? candidates[0] : 10;
+        }}
+
+        function setOptions(selectEl, values, suffix) {{
+            selectEl.innerHTML = values.map(value => `<option value="${{value}}">${{value}}${{suffix || ''}}</option>`).join('');
+        }}
+
+        function applyModeDefaults(mode) {{
+            const rows = availableRowsForMode(mode);
+            if (!rows.length) return;
+
+            const first = rows[0];
+            const pcts = [...new Set(rows.map(row => Number(row.forget_pct)))].sort((a, b) => a - b);
+            setOptions(forgetPctEl, pcts, '%');
+            forgetPctEl.value = String(Number(first.forget_pct));
+
+            const kValues = [...new Set(rows.filter(row => Number(row.forget_pct) === Number(first.forget_pct)).map(row => Number(row.K)))].sort((a, b) => a - b);
+            setOptions(kValueEl, kValues, '');
+            kValueEl.value = String(Number(first.K));
+
+            const threshold = smallestThresholdAtLeast(first.retain_drop_pp);
+            retainThresholdEl.value = String(threshold);
+        }}
+
         function buildBestByLambda(rows) {{
             const byMethod = new Map();
 
@@ -470,7 +501,10 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         forgetPctEl.addEventListener('change', renderPlots);
         kValueEl.addEventListener('change', renderPlots);
         retainThresholdEl.addEventListener('change', renderPlots);
-        modeEl.addEventListener('change', renderPlots);
+        modeEl.addEventListener('change', () => {{
+            applyModeDefaults(modeEl.value);
+            renderPlots();
+        }});
 
         function setDefault(selectEl, value) {{
             const options = Array.from(selectEl.options).map(opt => String(opt.value));
@@ -479,9 +513,11 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         }}
 
         setDefault(modeEl, {json.dumps(MODE_DIR)});
-        setDefault(forgetPctEl, AVAILABLE_PCTS[0]);
-        setDefault(kValueEl, 10);
-        setDefault(retainThresholdEl, 5);
+        applyModeDefaults(modeEl.value);
+
+        if (!forgetPctEl.value) setDefault(forgetPctEl, AVAILABLE_PCTS[0]);
+        if (!kValueEl.value) setDefault(kValueEl, 10);
+        if (!retainThresholdEl.value) setDefault(retainThresholdEl, 5);
 
         renderPlots();
     </script>
