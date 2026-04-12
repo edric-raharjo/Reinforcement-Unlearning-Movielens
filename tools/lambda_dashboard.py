@@ -63,8 +63,12 @@ def results_root(mode: str) -> Path:
     return BASE_RESULTS_DEMO if mode == "Demography" else BASE_RESULTS
 
 
+def analysis_root(mode: str) -> Path:
+    return BASE_ANALYSIS / mode
+
+
 def resolve_results_path(mode: str, forget_pct: int) -> Path | None:
-    roots = [results_root(mode), BASE_ANALYSIS, BASE_RESULTS, BASE_RESULTS_DEMO]
+    roots = [results_root(mode), analysis_root(mode)]
     seen: set[Path] = set()
 
     for root in roots:
