@@ -32,6 +32,7 @@ import pandas as pd
 
 BASE_ANALYSIS = Path("D:/Bob_Skripsi_Do Not Delete/Analysis")
 BASE_RESULTS = Path("D:/Bob_Skripsi_Do Not Delete/results")
+BASE_RESULTS_NORMAL_ALT = Path("C:/Bob/results")
 BASE_RESULTS_DEMO = Path("D:/Bob_Skripsi_Do Not Delete/results_demography")
 
 MODE = os.environ.get("RUN_MODE", "Normal")
@@ -59,8 +60,13 @@ def normalize_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return df
 
 
-def results_root(mode: str) -> Path:
-    return BASE_RESULTS_DEMO if mode == "Demography" else BASE_RESULTS
+def results_roots(mode: str, forget_pct: int) -> list[Path]:
+    if mode == "Demography":
+        return [BASE_RESULTS_DEMO]
+    # Mirror dashboard_fair.py behavior for Normal split storage.
+    if forget_pct in [1, 20]:
+        return [BASE_RESULTS_NORMAL_ALT, BASE_RESULTS]
+    return [BASE_RESULTS, BASE_RESULTS_NORMAL_ALT]
 
 
 def analysis_root(mode: str) -> Path:
@@ -68,7 +74,7 @@ def analysis_root(mode: str) -> Path:
 
 
 def resolve_results_path(mode: str, forget_pct: int) -> Path | None:
-    roots = [results_root(mode), analysis_root(mode)]
+    roots = [*results_roots(mode, forget_pct), analysis_root(mode)]
     seen: set[Path] = set()
 
     for root in roots:
