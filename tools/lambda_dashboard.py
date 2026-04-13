@@ -140,6 +140,7 @@ def load_results_for_pct(mode: str, forget_pct: int) -> pd.DataFrame:
     df["forget_quality_pp"] = df["forget_drop_pp"] - df["retain_drop_pp"]
 
     keep_cols = [
+        "mode",
         "forget_pct", "K", "method", "lambda_retain",
         "retain_drop_pp", "forget_drop_pp", "forget_quality_pp",
         "train_lr", "gamma", "hidden_dim", "train_batch",
@@ -188,6 +189,7 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
     methods = json.dumps(METHODS)
     mode_options = json.dumps(MODE_OPTIONS)
     pcts = json.dumps(available_pcts)
+    thresholds = json.dumps(THRESHOLDS)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -303,7 +305,8 @@ def build_html(data_df: pd.DataFrame, available_pcts: list[int], output_path: Pa
         const DATA = {payload};
         const MODE_OPTIONS = {mode_options};
         const AVAILABLE_PCTS = {pcts};
-
+        const THRESHOLDS = {thresholds};
+        
         const modeEl = document.getElementById('modeSelect');
         const forgetPctEl = document.getElementById('forgetPct');
         const kValueEl = document.getElementById('kValue');
