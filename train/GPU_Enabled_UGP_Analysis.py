@@ -9,6 +9,7 @@ import random
 import re
 import sys
 import time
+from contextlib import contextmanager
 from collections import deque
 from pathlib import Path
 
@@ -80,7 +81,8 @@ SOURCE_RESULTS_CSV_CANDIDATES = [
     "D:/Bob_Skripsi_Do Not Delete/results/1_percent/tuning_full_results.csv",
 ]
 
-RESULTS_ROOT = "D:/Bob_Skripsi_Do Not Delete/results_ugp_analysis"
+DEFAULT_RESULTS_ROOT = "D:/Bob_Skripsi_Do Not Delete/results_ugp_analysis"
+RESULTS_ROOT = os.environ.get("UGP_RESULTS_ROOT", DEFAULT_RESULTS_ROOT)
 METRICS_DIR = os.path.join(RESULTS_ROOT, "metrics")
 MODELS_DIR = os.path.join(RESULTS_ROOT, "models")
 LOCKS_DIR = os.path.join(RESULTS_ROOT, "locks")
@@ -153,6 +155,36 @@ def _fmt(v):
     if abs(v) < 0.01:
         return f"{v:.0e}".replace("-", "n").replace("+", "p")
     return str(v).replace(".", "d")
+
+
+def _lock_path(name):
+    return os.path.join(LOCKS_DIR, f"{name}.lock")
+
+
+@contextmanager
+def file_lock(name, poll_s=0.2, timeout_s=300):
+    lock_path = _lock_path(name)
+    start = time.time()
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            break
+        except FileExistsError:
+            if time.time() - start > timeout_s:
+                raise TimeoutError(f"Timed out waiting for lock: {lock_path}")
+            time.sleep(poll_s)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+
+
+def atomic_write_csv(df, path):
+    tmp_path = f"{path}.tmp.{os.getpid()}"
+    df.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, path)
 
 
 # ---------------------------------------------------------------------------
@@ -432,16 +464,23 @@ LOSS_KEY_COLS = [
 
 
 def load_loss_log():
-    if os.path.exists(LOSS_LOG_PATH):
-        df = pd.read_csv(LOSS_LOG_PATH)
-        df = df.drop_duplicates(subset=LOSS_KEY_COLS, keep="last")
-        return df.to_dict("records")
+    with file_lock("loss_log"):
+        if os.path.exists(LOSS_LOG_PATH):
+            df = pd.read_csv(LOSS_LOG_PATH)
+            df = df.drop_duplicates(subset=LOSS_KEY_COLS, keep="last")
+            return df.to_dict("records")
     return []
 
 
 def save_loss_log(rows):
-    if rows:
-        pd.DataFrame(rows).drop_duplicates(subset=LOSS_KEY_COLS, keep="last").to_csv(LOSS_LOG_PATH, index=False)
+    if not rows:
+        return
+    with file_lock("loss_log"):
+        existing = pd.read_csv(LOSS_LOG_PATH) if os.path.exists(LOSS_LOG_PATH) else pd.DataFrame()
+        incoming = pd.DataFrame(rows)
+        merged = pd.concat([existing, incoming], ignore_index=True)
+        merged = merged.drop_duplicates(subset=LOSS_KEY_COLS, keep="last")
+        atomic_write_csv(merged, LOSS_LOG_PATH)
 
 
 def append_loss_row(loss_rows, meta, iter_idx, loss_forget, loss_retain, loss_total):
@@ -687,7 +726,8 @@ def select_source_rows(source_csv):
 
 
 selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
-selection_summary_df.to_csv(SELECTION_SUMMARY_PATH, index=False)
+with file_lock("selection_summary"):
+    atomic_write_csv(selection_summary_df, SELECTION_SUMMARY_PATH)
 print("Selected source rows:")
 print(selection_summary_df[[
     "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
@@ -748,43 +788,55 @@ def select_forget_users_for_setting(setting, users_meta):
 # Progress and metrics persistence
 # ---------------------------------------------------------------------------
 PROGRESS_KEY_COLS = ["setting_id", "method"]
+METRIC_KEY_COLS = ["setting_id", "method", "K"]
 
 
 def load_progress():
-    if os.path.exists(PROGRESS_PATH):
-        df = pd.read_csv(PROGRESS_PATH)
-        df = df.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
-        return df, set(tuple(r) for r in df[PROGRESS_KEY_COLS].itertuples(index=False, name=None))
-    cols = PROGRESS_KEY_COLS + ["status", "unlearned_model_path"]
-    return pd.DataFrame(columns=cols), set()
+    with file_lock("progress"):
+        if os.path.exists(PROGRESS_PATH):
+            df = pd.read_csv(PROGRESS_PATH)
+            df = df.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
+            return df, set(tuple(r) for r in df[PROGRESS_KEY_COLS].itertuples(index=False, name=None))
+        cols = PROGRESS_KEY_COLS + ["status", "unlearned_model_path"]
+        return pd.DataFrame(columns=cols), set()
 
 
 def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path):
     key = (setting_id, method)
     if key not in done_set:
         done_set.add(key)
-    row = pd.DataFrame([{
-        "setting_id": setting_id,
-        "method": method,
-        "status": status,
-        "unlearned_model_path": unlearned_model_path,
-    }])
-    progress_df = pd.concat([progress_df, row], ignore_index=True)
-    progress_df = progress_df.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
-    progress_df.to_csv(PROGRESS_PATH, index=False)
-    return progress_df
+    with file_lock("progress"):
+        existing = pd.read_csv(PROGRESS_PATH) if os.path.exists(PROGRESS_PATH) else pd.DataFrame(columns=PROGRESS_KEY_COLS + ["status", "unlearned_model_path"])
+        row = pd.DataFrame([{
+            "setting_id": setting_id,
+            "method": method,
+            "status": status,
+            "unlearned_model_path": unlearned_model_path,
+        }])
+        merged = pd.concat([existing, row], ignore_index=True)
+        merged = merged.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
+        atomic_write_csv(merged, PROGRESS_PATH)
+    return merged
 
 
 def load_metrics():
-    if os.path.exists(METRICS_PATH):
-        df = pd.read_csv(METRICS_PATH)
-        return df.to_dict("records")
+    with file_lock("metrics"):
+        if os.path.exists(METRICS_PATH):
+            df = pd.read_csv(METRICS_PATH)
+            df = df.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
+            return df.to_dict("records")
     return []
 
 
 def save_metrics(metric_rows):
-    if metric_rows:
-        pd.DataFrame(metric_rows).to_csv(METRICS_PATH, index=False)
+    if not metric_rows:
+        return
+    with file_lock("metrics"):
+        existing = pd.read_csv(METRICS_PATH) if os.path.exists(METRICS_PATH) else pd.DataFrame()
+        incoming = pd.DataFrame(metric_rows)
+        merged = pd.concat([existing, incoming], ignore_index=True)
+        merged = merged.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
+        atomic_write_csv(merged, METRICS_PATH)
 
 
 def build_model_output_path(setting, source_row):
@@ -806,7 +858,6 @@ def build_model_output_path(setting, source_row):
 
 
 def append_metric_rows(
-    metric_rows,
     *,
     setting,
     category_user_count,
@@ -822,10 +873,11 @@ def append_metric_rows(
     baseline,
     after,
 ):
+    new_rows = []
     for K in KS:
         bh_r, bn_r, bh_f, bn_f, bh_c, bn_c = baseline[K]
         h_r, n_r, h_f, n_f, h_c, n_c = after[K]
-        metric_rows.append({
+        new_rows.append({
             "setting_id": setting["setting_id"],
             "setting_type": setting["setting_type"],
             "setting_value_raw": setting["setting_value_raw"],
@@ -866,7 +918,7 @@ def append_metric_rows(
             "base_combined_Hit": bh_c,
             "base_combined_NDCG": bn_c,
         })
-    save_metrics(metric_rows)
+    save_metrics(new_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -1013,7 +1065,6 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
         torch.save(net_copy.state_dict(), unlearned_model_path)
 
     append_metric_rows(
-        metric_rows,
         setting=setting,
         category_user_count=category_user_count,
         forget_user_count=forget_user_count,
