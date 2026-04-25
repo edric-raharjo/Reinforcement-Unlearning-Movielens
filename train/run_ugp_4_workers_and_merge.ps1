@@ -1,11 +1,11 @@
 param(
-    [int]$NumWorkers = 4,
+    [int]$NumWorkers = 5,
     [string]$Python = "C:\Bob\.venv\Scripts\python.exe",
     [string]$BaseResultsRoot = "D:\Bob_Skripsi_Do Not Delete",
     [switch]$CleanWorkerOutputs
 )
 
-$ScriptDir = "C:\Bob\Reinforcement-Unlearning-Movielens\train"
+$ScriptDir = "C:\Bob\train"
 $FinalResultsRoot = Join-Path $BaseResultsRoot "results_ugp_analysis"
 
 function Wait-AndStreamJobs {
