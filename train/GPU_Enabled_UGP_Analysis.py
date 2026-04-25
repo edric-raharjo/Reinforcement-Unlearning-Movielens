@@ -55,7 +55,7 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 
 BASE_MODE = "Normal"
 BASE_FORGET_PCT = 1
-BASE_THRESHOLDS_PP = [0.0, 1.0, 2.0, 5.0, 10.0]
+BASE_THRESHOLD_PP = 5.0
 TOP_SELECTION_K = 10
 TARGET_FORGET_COUNT = 60  # 1% of 6040 users
 
@@ -427,15 +427,13 @@ def collect_policy_experience(env, policy_net, num_steps, buffer):
 # Loss log helpers
 # ---------------------------------------------------------------------------
 LOSS_KEY_COLS = [
-    "base_threshold_pp", "setting_id", "method", "iter"
+    "setting_id", "method", "iter"
 ]
 
 
 def load_loss_log():
     if os.path.exists(LOSS_LOG_PATH):
         df = pd.read_csv(LOSS_LOG_PATH)
-        if "base_threshold_pp" not in df.columns:
-            df["base_threshold_pp"] = 5.0
         df = df.drop_duplicates(subset=LOSS_KEY_COLS, keep="last")
         return df.to_dict("records")
     return []
@@ -448,7 +446,6 @@ def save_loss_log(rows):
 
 def append_loss_row(loss_rows, meta, iter_idx, loss_forget, loss_retain, loss_total):
     row = {
-        "base_threshold_pp": meta["base_threshold_pp"],
         "setting_id": meta["setting_id"],
         "setting_label": meta["setting_label"],
         "method": meta["method"],
@@ -666,25 +663,22 @@ def select_source_rows(source_csv):
     df["forget_drop_hit_pp"] = (df["base_forget_Hit"] - df["forget_Hit"]) * 100.0
 
     selected = []
-    for threshold_pp in BASE_THRESHOLDS_PP:
-        for method in TARGET_METHODS:
-            cand = df[
-                (df["method"] == method)
-                & (df["K"] == TOP_SELECTION_K)
-                & (df["retain_drop_hit_pp"] <= threshold_pp)
-            ].copy()
-            if cand.empty:
-                raise ValueError(
-                    f"No valid source row found for method={method} threshold={threshold_pp}"
-                )
-            cand = cand.sort_values(
-                ["forget_drop_hit_pp", "lambda_retain"],
-                ascending=[False, True],
-                kind="mergesort",
-            ).reset_index(drop=True)
-            chosen = cand.iloc[0].to_dict()
-            chosen["base_threshold_pp"] = float(threshold_pp)
-            selected.append(chosen)
+    for method in TARGET_METHODS:
+        cand = df[
+            (df["method"] == method)
+            & (df["K"] == TOP_SELECTION_K)
+            & (df["retain_drop_hit_pp"] <= BASE_THRESHOLD_PP)
+        ].copy()
+        if cand.empty:
+            raise ValueError(f"No valid source row found for method={method}")
+        cand = cand.sort_values(
+            ["forget_drop_hit_pp", "lambda_retain"],
+            ascending=[False, True],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        chosen = cand.iloc[0].to_dict()
+        chosen["base_threshold_pp"] = float(BASE_THRESHOLD_PP)
+        selected.append(chosen)
 
     summary_df = pd.DataFrame(selected)
     summary_df["base_mode"] = BASE_MODE
@@ -696,7 +690,7 @@ selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
 selection_summary_df.to_csv(SELECTION_SUMMARY_PATH, index=False)
 print("Selected source rows:")
 print(selection_summary_df[[
-    "base_threshold_pp", "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
+    "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
     "trained_model_path", "unlearn_lr", "unlearn_iters", "lambda_retain",
     "retain_drop_hit_pp", "forget_drop_hit_pp"
 ]].to_string(index=False))
@@ -753,26 +747,23 @@ def select_forget_users_for_setting(setting, users_meta):
 # ---------------------------------------------------------------------------
 # Progress and metrics persistence
 # ---------------------------------------------------------------------------
-PROGRESS_KEY_COLS = ["base_threshold_pp", "setting_id", "method"]
+PROGRESS_KEY_COLS = ["setting_id", "method"]
 
 
 def load_progress():
     if os.path.exists(PROGRESS_PATH):
         df = pd.read_csv(PROGRESS_PATH)
-        if "base_threshold_pp" not in df.columns:
-            df["base_threshold_pp"] = 5.0
         df = df.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
         return df, set(tuple(r) for r in df[PROGRESS_KEY_COLS].itertuples(index=False, name=None))
     cols = PROGRESS_KEY_COLS + ["status", "unlearned_model_path"]
     return pd.DataFrame(columns=cols), set()
 
 
-def mark_progress(progress_df, done_set, base_threshold_pp, setting_id, method, status, unlearned_model_path):
-    key = (base_threshold_pp, setting_id, method)
+def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path):
+    key = (setting_id, method)
     if key not in done_set:
         done_set.add(key)
     row = pd.DataFrame([{
-        "base_threshold_pp": base_threshold_pp,
         "setting_id": setting_id,
         "method": method,
         "status": status,
@@ -787,8 +778,6 @@ def mark_progress(progress_df, done_set, base_threshold_pp, setting_id, method, 
 def load_metrics():
     if os.path.exists(METRICS_PATH):
         df = pd.read_csv(METRICS_PATH)
-        if "base_threshold_pp" not in df.columns:
-            df["base_threshold_pp"] = 5.0
         return df.to_dict("records")
     return []
 
@@ -801,8 +790,7 @@ def save_metrics(metric_rows):
 def build_model_output_path(setting, source_row):
     return os.path.join(
         MODELS_DIR,
-        "ugp__thr{thr}__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}.pt".format(
-            thr=_fmt(float(source_row["base_threshold_pp"])),
+        "ugp__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}.pt".format(
             sid=setting["setting_id"],
             label=slugify(setting["setting_label"]),
             method=source_row["method"],
@@ -889,36 +877,31 @@ metric_rows = load_metrics()
 loss_log_rows = load_loss_log()
 
 selection_by_method = {
-    (float(row["base_threshold_pp"]), row["method"]): row
+    row["method"]: row
     for _, row in selection_summary_df.iterrows()
 }
 
 jobs = [
-    (threshold_pp, setting, method)
-    for threshold_pp in BASE_THRESHOLDS_PP
+    (setting, method)
     for setting in SETTINGS
     for method in TARGET_METHODS
 ]
 jobs = [job for idx, job in enumerate(jobs) if idx % NUM_WORKERS == WORKER_ID]
 
-print(f"Total thresholds         : {len(BASE_THRESHOLDS_PP)}")
 print(f"Total settings           : {len(SETTINGS)}")
 print(f"Total target methods     : {len(TARGET_METHODS)}")
-print(f"Total jobs (global)      : {len(BASE_THRESHOLDS_PP) * len(SETTINGS) * len(TARGET_METHODS)}")
+print(f"Total jobs (global)      : {len(SETTINGS) * len(TARGET_METHODS)}")
 print(f"Worker {WORKER_ID} jobs  : {len(jobs)}")
 
 all_users_meta = users_df[users_df["user_id"].isin(sample_users)].copy().set_index("user_id")
 
-for job_idx, (threshold_pp, setting, method) in enumerate(jobs, start=1):
-    key = (float(threshold_pp), setting["setting_id"], method)
+for job_idx, (setting, method) in enumerate(jobs, start=1):
+    key = (setting["setting_id"], method)
     if key in done_set:
-        print(
-            f"[SKIP {job_idx:>3}/{len(jobs)}] "
-            f"threshold={threshold_pp:.1f} setting={setting['setting_id']:02d} method={method} already done"
-        )
+        print(f"[SKIP {job_idx:>3}/{len(jobs)}] setting={setting['setting_id']:02d} method={method} already done")
         continue
 
-    source_row = selection_by_method[(float(threshold_pp), method)]
+    source_row = selection_by_method[method]
     forget_users, category_user_count = select_forget_users_for_setting(setting, all_users_meta)
     retain_users = np.array(sorted(set(sample_users) - set(forget_users.tolist())), dtype=int)
 
@@ -927,16 +910,13 @@ for job_idx, (threshold_pp, setting, method) in enumerate(jobs, start=1):
 
     print(
         f"[RUN  {job_idx:>3}/{len(jobs)}] "
-        f"threshold={threshold_pp:.1f} | "
         f"setting={setting['setting_id']:02d} {setting['setting_label']} | "
         f"method={method} | category={category_user_count} | "
         f"forget={forget_user_count} | retain={retain_user_count}"
     )
 
     if forget_user_count == 0:
-        progress_df = mark_progress(
-            progress_df, done_set, float(threshold_pp), setting["setting_id"], method, "NO_USERS", ""
-        )
+        progress_df = mark_progress(progress_df, done_set, setting["setting_id"], method, "NO_USERS", "")
         continue
 
     forget_user_set = set(forget_users.tolist())
@@ -945,7 +925,7 @@ for job_idx, (threshold_pp, setting, method) in enumerate(jobs, start=1):
     forget_trajectories = [t for t in trajectories_all if t["user_id"] in forget_user_set]
     retain_trajectories = [t for t in trajectories_all if t["user_id"] in retain_user_set]
 
-    seed_run = make_seed("ugp_analysis", float(threshold_pp), setting["setting_id"], method)
+    seed_run = make_seed("ugp_analysis", setting["setting_id"], method)
     set_seed(seed_run)
 
     trained_model_path = source_row["trained_model_path"]
@@ -971,7 +951,6 @@ for job_idx, (threshold_pp, setting, method) in enumerate(jobs, start=1):
     net_copy = copy.deepcopy(net)
     unlearned_model_path = build_model_output_path(setting, source_row)
     loss_meta = {
-        "base_threshold_pp": float(threshold_pp),
         "setting_id": setting["setting_id"],
         "setting_label": setting["setting_label"],
         "method": method,
@@ -1053,7 +1032,6 @@ for job_idx, (threshold_pp, setting, method) in enumerate(jobs, start=1):
     progress_df = mark_progress(
         progress_df,
         done_set,
-        float(threshold_pp),
         setting["setting_id"],
         method,
         "DONE",
