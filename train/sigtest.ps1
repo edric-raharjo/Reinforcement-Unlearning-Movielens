@@ -1,10 +1,11 @@
 param (
     [int]$WorkerID = 0,
-    [int]$NumWorkers = 1,  # Change to 5 if running 5 separate terminals
-    [int]$NumRuns = 10     # How many times to test each config
+    [int]$NumWorkers = 1,
+    [int]$NumRuns = 10
 )
 
-# Unified Automated Runner for Best Hardcoded Configurations across ALL Data Modalities
+# Define your actual base models directory where Phase 1 saved the .pt files
+$BaseModelsDir = "D:/Bob_Skripsi_Do Not Delete/results/1_percent/models"
 
 $Configurations = @(
     # --- Normal 1 Percent Configurations ---
@@ -23,7 +24,6 @@ $Configurations = @(
     @{ ScriptType = "UGP"; Name = "UGP_Analysis - Gradient_Ascent"; SettingID = 7; SettingType = "age"; SettingValueRaw = "45"; TrainLr = 0.001; Gamma = 0.99; HiddenDim = 256; TrainBatch = 4; UnlearnLr = 0.0001; UnlearnIters = 2000; LambdaRetain = 0.0; Method = "Gradient_Ascent" }
 )
 
-# Flatten Configurations X Runs into a list of tasks
 $AllTasks = @()
 foreach ($Config in $Configurations) {
     for ($r = 1; $r -le $NumRuns; $r++) {
@@ -35,21 +35,27 @@ foreach ($Config in $Configurations) {
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host "Starting Master Unlearning Worker ($WorkerID/$NumWorkers)..." -ForegroundColor Cyan
-Write-Host "Total Configs : $($Configurations.Count)" -ForegroundColor Cyan
-Write-Host "Runs Per Config: $NumRuns" -ForegroundColor Cyan
-Write-Host "Total Tasks   : $($AllTasks.Count)" -ForegroundColor Cyan
 Write-Host "=========================================================" -ForegroundColor Cyan
 
-# Route Only Tasks Assigned to This Worker ID
 for ($i = 0; $i -lt $AllTasks.Count; $i++) {
     if (($i % $NumWorkers) -ne $WorkerID) {
         continue
     }
 
     $Task = $AllTasks[$i]
-    Write-Host "`n🚀 [Worker $WorkerID] Executing Task $($i + 1)/$($AllTasks.Count): $($Task.Name) | Run: $($Task.RunIdx)" -ForegroundColor Green
-    Write-Host "---------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host "`n🚀 [Worker $WorkerID] Task $($i + 1)/$($AllTasks.Count): $($Task.Name) | Run: $($Task.RunIdx)" -ForegroundColor Green
     
+    # Format the scientific notations precisely matching Python script string converter format
+    # 0.001 -> 1en03, 0.99 -> 0d99, etc.
+    $fmtTLR = "$($Task.TrainLr)".Replace("0.", "0d").Replace("0,","0d")
+    if ($Task.TrainLr -lt 0.01) { $fmtTLR = "$($Task.TrainLr)".Replace("-", "n").Replace("0.00", "") + "en03" }
+    
+    $fmtGamma = "$($Task.Gamma)".Replace(".", "d").Replace(",","d")
+    
+    # Explicitly calculate the target model path 
+    $ModelFileName = "trained__tlr${fmtTLR}__g${fmtGamma}__h$($Task.HiddenDim)__bs$($Task.TrainBatch).pt"
+    $FullModelPath = "$BaseModelsDir/$ModelFileName".Replace("\","/")
+
     $ScriptPath = ""
     $Arguments = ""
     
@@ -63,7 +69,8 @@ for ($i = 0; $i -lt $AllTasks.Count; $i++) {
     } 
     elseif ($Task.ScriptType -eq "UGP") {
         $ScriptPath = "GPU_Enabled_UGP_Analysis.py"
-        $Arguments = "--setting_id $($Task.SettingID) --setting_type $($Task.SettingType) --setting_value_raw $($Task.SettingValueRaw) --train_lr $($Task.TrainLr) --gamma $($Task.Gamma) --hidden_dim $($Task.HiddenDim) --train_batch $($Task.TrainBatch) --unlearn_lr $($Task.UnlearnLr) --unlearn_iters $($Task.UnlearnIters) --lambda_retain $($Task.LambdaRetain) --method $($Task.Method) --run_idx $($Task.RunIdx)"
+        # Pass the calculated model file destination directly down via command-line parameter
+        $Arguments = "--setting_id $($Task.SettingID) --setting_type $($Task.SettingType) --setting_value_raw $($Task.SettingValueRaw) --train_lr $($Task.TrainLr) --gamma $($Task.Gamma) --hidden_dim $($Task.HiddenDim) --train_batch $($Task.TrainBatch) --unlearn_lr $($Task.UnlearnLr) --unlearn_iters $($Task.UnlearnIters) --lambda_retain $($Task.LambdaRetain) --method $($Task.Method) --run_idx $($Task.RunIdx) --trained_model_path `"$FullModelPath`""
     }
 
     Write-Host "Running: python $ScriptPath $Arguments" -ForegroundColor DarkGray

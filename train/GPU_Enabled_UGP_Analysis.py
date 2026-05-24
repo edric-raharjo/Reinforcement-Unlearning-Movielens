@@ -70,6 +70,7 @@ parser.add_argument("--unlearn_lr", type=float, default=None)
 parser.add_argument("--unlearn_iters", type=int, default=None)
 parser.add_argument("--lambda_retain", type=float, default=None)
 parser.add_argument("--run_idx", type=int, default=1)
+parser.add_argument("--trained_model_path", type=str, default=None, help="Explicit path to the baseline trained model file")
 
 args, _ = parser.parse_known_args()
 
@@ -775,6 +776,11 @@ def select_source_rows(source_csv):
 if args.train_lr is not None:
     # Build a mock dictionary row to populate your program's metadata structures directly
     # This matches the expected format of your hardcoded configurations perfectly
+    # Use the passed path if available; otherwise fall back to default generation
+    t_path = args.trained_model_path if args.trained_model_path is not None else os.path.join(RESULTS_ROOT, "models", f"trained__tlr{_fmt(args.train_lr)}__g{_fmt(args.gamma)}__h{args.hidden_dim}__bs{args.train_batch}.pt")
+    # Clean up file separators for safety
+    t_path = os.path.normpath(t_path).replace("\\", "/")
+
     mock_row = {
         "method": args.method,
         "source_row_id": -1,
@@ -782,7 +788,7 @@ if args.train_lr is not None:
         "gamma": args.gamma,
         "hidden_dim": args.hidden_dim,
         "train_batch": args.train_batch,
-        "trained_model_path": os.path.join(RESULTS_ROOT, "models", f"trained__tlr{_fmt(args.train_lr)}__g{_fmt(args.gamma)}__h{args.hidden_dim}__bs{args.train_batch}.pt"),
+        "trained_model_path": t_path,
         "unlearn_lr": args.unlearn_lr,
         "unlearn_iters": args.unlearn_iters,
         "lambda_retain": args.lambda_retain,
