@@ -104,7 +104,7 @@ SOURCE_RESULTS_CSV_CANDIDATES = [
     "D:/Bob_Skripsi_Do Not Delete/results/1_percent/tuning_full_results.csv",
 ]
 
-DEFAULT_RESULTS_ROOT = "D:/Bob_Skripsi_Do Not Delete/results_ugp_analysis"
+DEFAULT_RESULTS_ROOT = "C:/Bob/results/results_ugp_analysis"
 RESULTS_ROOT = os.environ.get("UGP_RESULTS_ROOT", DEFAULT_RESULTS_ROOT)
 METRICS_DIR = os.path.join(RESULTS_ROOT, "metrics")
 MODELS_DIR = os.path.join(RESULTS_ROOT, "models")
@@ -841,8 +841,8 @@ def load_progress():
         return pd.DataFrame(columns=cols), set()
 
 
-def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path):
-    key = (setting_id, method)
+def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path, run_idx):
+    key = (setting_id, method, run_idx)
     if key not in done_set:
         done_set.add(key)
     with file_lock("progress"):
@@ -852,12 +852,12 @@ def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_m
             "method": method,
             "status": status,
             "unlearned_model_path": unlearned_model_path,
+            "run_idx": run_idx,
         }])
         merged = pd.concat([existing, row], ignore_index=True)
         merged = merged.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
         atomic_write_csv(merged, PROGRESS_PATH)
     return merged
-
 
 def load_metrics():
     with file_lock("metrics"):
@@ -1019,7 +1019,7 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
     )
 
     if forget_user_count == 0:
-        progress_df = mark_progress(progress_df, done_set, setting["setting_id"], method, "NO_USERS", "")
+        progress_df = mark_progress(progress_df, done_set, setting["setting_id"], method, "NO_USERS", "", args.run_idx)
         continue
 
     forget_user_set = set(forget_users.tolist())
@@ -1139,6 +1139,7 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
         method,
         "DONE",
         unlearned_model_path if SAVE_UNLEARNED_MODELS else "",
+        args.run_idx,
     )
 
     del net, net_copy, forget_buffer, retain_buffer

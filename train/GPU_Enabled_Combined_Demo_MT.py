@@ -81,7 +81,7 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 # ---------------------------------------------------------------------------
 
 DATA_DIR = "C:/Bob/ml-1m"
-RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results_demography/{FORGET_PERCENTAGE}_percent"
+RESULTS_BASE = f"C:/Bob/results/results_demography/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR = os.path.join(RESULTS_BASE, "models")
 F_BUF_PATH = os.path.join(RESULTS_BASE, "forget_buffer.pkl")
 
@@ -1605,7 +1605,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 progress_df = mark_done(
                     progress_df, done_set,
                     t_lr, gamma, hidden_dim, train_bs,
-                    u_lr, u_iters, lam, method,
+                    u_lr, u_iters, lam, method, args.run_idx,
                 )
                 ul_done += 1
 
@@ -1690,7 +1690,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 progress_df = mark_done(
                     progress_df, done_set,
                     t_lr, gamma, hidden_dim, train_bs,
-                    u_lr, u_iters, lam, method,
+                    u_lr, u_iters, lam, method, args.run_idx,
                 )
                 ul_done += 1
 
@@ -1775,7 +1775,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 progress_df = mark_done(
                     progress_df, done_set,
                     t_lr, gamma, hidden_dim, train_bs,
-                    u_lr, u_iters, lam, method,
+                    u_lr, u_iters, lam, method, args.run_idx,
                 )
                 ul_done += 1
 
@@ -1860,7 +1860,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 progress_df = mark_done(
                     progress_df, done_set,
                     t_lr, gamma, hidden_dim, train_bs,
-                    u_lr, u_iters, lam, method,
+                    u_lr, u_iters, lam, method, args.run_idx,
                 )
                 ul_done += 1
 
@@ -1945,7 +1945,7 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
                 progress_df = mark_done(
                     progress_df, done_set,
                     t_lr, gamma, hidden_dim, train_bs,
-                    u_lr, u_iters, lam, method,
+                    u_lr, u_iters, lam, method, args.run_idx,
                 )
                 ul_done += 1
 
