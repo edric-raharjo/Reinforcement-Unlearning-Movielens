@@ -69,6 +69,7 @@ parser.add_argument("--train_batch", type=int, default=None)
 parser.add_argument("--unlearn_lr", type=float, default=None)
 parser.add_argument("--unlearn_iters", type=int, default=None)
 parser.add_argument("--lambda_retain", type=float, default=None)
+parser.add_argument("--run_idx", type=int, default=1)
 
 args, _ = parser.parse_known_args()
 
@@ -827,9 +828,8 @@ def select_forget_users_for_setting(setting, users_meta):
 # ---------------------------------------------------------------------------
 # Progress and metrics persistence
 # ---------------------------------------------------------------------------
-PROGRESS_KEY_COLS = ["setting_id", "method"]
-METRIC_KEY_COLS = ["setting_id", "method", "K"]
-
+PROGRESS_KEY_COLS = ["setting_id", "method", "run_idx"]
+METRIC_KEY_COLS = ["setting_id", "method", "K", "run_idx"]
 
 def load_progress():
     with file_lock("progress"):
@@ -882,7 +882,8 @@ def save_metrics(metric_rows):
 def build_model_output_path(setting, source_row):
     return os.path.join(
         MODELS_DIR,
-        "ugp__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}.pt".format(
+        "ugp__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}__run{rid}.pt".format(
+            rid=args.run_idx,
             sid=setting["setting_id"],
             label=slugify(setting["setting_label"]),
             method=source_row["method"],
@@ -1027,7 +1028,8 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
     forget_trajectories = [t for t in trajectories_all if t["user_id"] in forget_user_set]
     retain_trajectories = [t for t in trajectories_all if t["user_id"] in retain_user_set]
 
-    seed_run = make_seed("ugp_analysis", setting["setting_id"], method)
+    # Seed incorporates the run index!
+    seed_run = make_seed("ugp_analysis", setting["setting_id"], method, "unlearn", args.run_idx)
     set_seed(seed_run)
 
     trained_model_path = source_row["trained_model_path"]

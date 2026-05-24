@@ -65,6 +65,7 @@ parser.add_argument("--unlearn_lr", type=float, default=None)
 parser.add_argument("--unlearn_iters", type=int, default=None)
 parser.add_argument("--lambda_retain", type=float, default=None)
 parser.add_argument("--method", type=str, default=None, choices=["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"])
+parser.add_argument("--run_idx", type=int, default=1, help="Index of the run for multiple statistical passes")
 
 args = parser.parse_args()
 
@@ -639,6 +640,7 @@ def append_eval_rows(
             "base_retain_NDCG": bn_r,
             "base_forget_Hit": bh_f,
             "base_forget_NDCG": bn_f,
+            "run_idx": args.run_idx,
         })
 
     pd.DataFrame(all_results).to_csv(RESULTS_PATH, index=False)
@@ -1027,7 +1029,7 @@ def unlearned_model_path(t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iter
     name = (
         f"unlearn__{method}__tlr{_fmt(t_lr)}__g{_fmt(gamma)}"
         f"__h{hidden_dim}__bs{train_bs}__ulr{_fmt(u_lr)}"
-        f"__ui{u_iters}__lam{_fmt(lam)}.pt"
+        f"__ui{u_iters}__lam{_fmt(lam)}__run{args.run_idx}.pt"
     )
     return os.path.join(MODELS_DIR, name)
 
@@ -1046,12 +1048,11 @@ def retain_buf_path(t_lr, gamma, hidden_dim, train_bs):
 
 _TRAIN_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs"]
 _TRAIN_KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch", "K"]
-_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs", "u_lr", "u_iters", "lam", "method"]
+_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs", "u_lr", "u_iters", "lam", "method", "run_idx"]
 _KEY_COLS = [
     "train_lr", "gamma", "hidden_dim", "train_batch",
-    "unlearn_lr", "unlearn_iters", "lambda_retain", "method", "K",
+    "unlearn_lr", "unlearn_iters", "lambda_retain", "method", "K", "run_idx",
 ]
-
 
 def load_train_progress(train_configs):
     if os.path.exists(TRAIN_PROGRESS_PATH):
@@ -1086,9 +1087,9 @@ def load_progress():
 def mark_done(
     prog_df, done_set,
     t_lr, gamma, hidden_dim, train_bs,
-    u_lr, u_iters, lam, method,
+    u_lr, u_iters, lam, method, run_idx,
 ):
-    key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
+    key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, run_idx)
     if key not in done_set:
         done_set.add(key)
         row = pd.DataFrame([dict(zip(_PROG_COLS, key))])
@@ -1495,8 +1496,8 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         lam = 1.0
         method = "Ye_ApxI"
         if TARGET_METHOD is None or TARGET_METHOD == method:
-            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
             if combo_key in done_set:
                 ul_skipped += 1
@@ -1579,9 +1580,8 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         lam = 1.0
         method = "Ye_multi"
         if TARGET_METHOD is None or TARGET_METHOD == method:
-            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
-
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
             if combo_key in done_set:
                 ul_skipped += 1
                 ul_done += 1
@@ -1663,9 +1663,8 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         method = "New_True_inf"
         if TARGET_METHOD is None or TARGET_METHOD == method:
             for lam in LAMBDA_VALS:
-                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
-
+                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
                 if combo_key in done_set:
                     ul_skipped += 1
                     ul_done += 1
@@ -1748,8 +1747,8 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         method = "New_Max"
         if TARGET_METHOD is None or TARGET_METHOD == method:
             for lam in LAMBDA_VALS:
-                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
                 if combo_key in done_set:
                     ul_skipped += 1
@@ -1833,8 +1832,8 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         lam = 0.0
         method = "Gradient_Ascent"
         if TARGET_METHOD is None or TARGET_METHOD == method:
-            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
             if combo_key in done_set:
                 ul_skipped += 1
