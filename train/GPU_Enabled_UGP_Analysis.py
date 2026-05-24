@@ -221,10 +221,16 @@ def resolve_existing_path(candidates, description):
 
 
 DATA_DIR = resolve_existing_path(DATA_DIR_CANDIDATES, "MovieLens data directory")
-SOURCE_RESULTS_CSV = resolve_existing_path(SOURCE_RESULTS_CSV_CANDIDATES, "Source tuning_full_results.csv")
+
+# If manual overrides are provided, we don't need to strictly look up the old csv candidate list
+if args.train_lr is not None:
+    SOURCE_RESULTS_CSV = None
+    print(" Running with manual hyperparameter overrides. Skipping source CSV file validation.")
+else:
+    SOURCE_RESULTS_CSV = resolve_existing_path(SOURCE_RESULTS_CSV_CANDIDATES, "Source tuning_full_results.csv")
+    print(f"SOURCE_RESULTS_CSV : {SOURCE_RESULTS_CSV}")
 
 print(f"DATA_DIR           : {DATA_DIR}")
-print(f"SOURCE_RESULTS_CSV : {SOURCE_RESULTS_CSV}")
 print(f"RESULTS_ROOT       : {RESULTS_ROOT}")
 print(f"NUM_WORKERS        : {NUM_WORKERS}")
 print(f"WORKER_ID          : {WORKER_ID}")
@@ -766,15 +772,34 @@ def select_source_rows(source_csv):
     return summary_df
 
 
-selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
-with file_lock("selection_summary"):
-    atomic_write_csv(selection_summary_df, SELECTION_SUMMARY_PATH)
-print("Selected source rows:")
-print(selection_summary_df[[
-    "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
-    "trained_model_path", "unlearn_lr", "unlearn_iters", "lambda_retain",
-    "retain_drop_hit_pp", "forget_drop_hit_pp"
-]].to_string(index=False))
+if args.train_lr is not None:
+    # Build a mock dictionary row to populate your program's metadata structures directly
+    # This matches the expected format of your hardcoded configurations perfectly
+    mock_row = {
+        "method": args.method,
+        "source_row_id": -1,
+        "train_lr": args.train_lr,
+        "gamma": args.gamma,
+        "hidden_dim": args.hidden_dim,
+        "train_batch": args.train_batch,
+        "trained_model_path": os.path.join(RESULTS_ROOT, "models", f"trained__tlr{_fmt(args.train_lr)}__g{_fmt(args.gamma)}__h{args.hidden_dim}__bs{args.train_batch}.pt"),
+        "unlearn_lr": args.unlearn_lr,
+        "unlearn_iters": args.unlearn_iters,
+        "lambda_retain": args.lambda_retain,
+        "base_threshold_pp": 0.0
+    }
+    selection_summary_df = pd.DataFrame([mock_row])
+    print(f" Skipping CSV parsing. Successfully generated meta-dictionary for hardcoded config: {args.method}")
+else:
+    selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
+    with file_lock("selection_summary"):
+        atomic_write_csv(selection_summary_df, SELECTION_SUMMARY_PATH)
+    print("Selected source rows:")
+    print(selection_summary_df[[
+        "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
+        "trained_model_path", "unlearn_lr", "unlearn_iters", "lambda_retain",
+        "retain_drop_hit_pp", "forget_drop_hit_pp"
+    ]].to_string(index=False))
 
 
 # ---------------------------------------------------------------------------
