@@ -50,8 +50,30 @@ torch.use_deterministic_algorithms(True, warn_only=True)
 # ---------------------------------------------------------------------------
 # Runtime configuration
 # ---------------------------------------------------------------------------
-NUM_WORKERS = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-WORKER_ID = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+# ---------------------------------------------------------------------------
+# Runtime configuration
+# ---------------------------------------------------------------------------
+import argparse
+
+parser = argparse.ArgumentParser(description="GPU Enabled UGP Analysis with exact overrides")
+parser.add_argument("--num_workers", type=int, default=1)
+parser.add_argument("--worker_id", type=int, default=0)
+parser.add_argument("--method", type=str, default=None, choices=["Ye_multi", "New_True_inf", "Gradient_Ascent"])
+parser.add_argument("--setting_id", type=int, default=None)
+parser.add_argument("--setting_type", type=str, default=None)
+parser.add_argument("--setting_value_raw", type=str, default=None)
+parser.add_argument("--train_lr", type=float, default=None)
+parser.add_argument("--gamma", type=float, default=None)
+parser.add_argument("--hidden_dim", type=int, default=None)
+parser.add_argument("--train_batch", type=int, default=None)
+parser.add_argument("--unlearn_lr", type=float, default=None)
+parser.add_argument("--unlearn_iters", type=int, default=None)
+parser.add_argument("--lambda_retain", type=float, default=None)
+
+args, _ = parser.parse_known_args()
+
+NUM_WORKERS = args.num_workers
+WORKER_ID = args.worker_id
 assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 
 BASE_MODE = "Normal"
@@ -60,7 +82,7 @@ BASE_THRESHOLD_PP = 5.0
 TOP_SELECTION_K = 10
 TARGET_FORGET_COUNT = 60  # 1% of 6040 users
 
-TARGET_METHODS = ["Ye_multi", "New_True_inf", "Gradient_Ascent"]
+TARGET_METHODS = [args.method] if args.method else ["Ye_multi", "New_True_inf", "Gradient_Ascent"]
 KS = [1, 5, 10]
 MAX_STEPS = 30
 UNLEARN_BATCH = 64
@@ -703,21 +725,39 @@ def select_source_rows(source_csv):
 
     selected = []
     for method in TARGET_METHODS:
-        cand = df[
-            (df["method"] == method)
-            & (df["K"] == TOP_SELECTION_K)
-            & (df["retain_drop_hit_pp"] <= BASE_THRESHOLD_PP)
-        ].copy()
-        if cand.empty:
-            raise ValueError(f"No valid source row found for method={method}")
-        cand = cand.sort_values(
-            ["forget_drop_hit_pp", "lambda_retain"],
-            ascending=[False, True],
-            kind="mergesort",
-        ).reset_index(drop=True)
-        chosen = cand.iloc[0].to_dict()
-        chosen["base_threshold_pp"] = float(BASE_THRESHOLD_PP)
-        selected.append(chosen)
+            if args.train_lr is not None:
+                # Bypass top selection and pluck the exact row provided by the CLI
+                cand = df[
+                    (df["method"] == method) &
+                    (df["K"] == TOP_SELECTION_K) &
+                    (np.isclose(df["train_lr"], args.train_lr, atol=1e-5)) &
+                    (np.isclose(df["gamma"], args.gamma, atol=1e-5)) &
+                    (df["hidden_dim"] == args.hidden_dim) &
+                    (df["train_batch"] == args.train_batch) &
+                    (np.isclose(df["unlearn_lr"], args.unlearn_lr, atol=1e-5)) &
+                    (df["unlearn_iters"] == args.unlearn_iters) &
+                    (np.isclose(df["lambda_retain"], args.lambda_retain, atol=1e-5))
+                ].copy()
+                if cand.empty:
+                    raise ValueError(f"Manual override config not found in CSV for {method}")
+                chosen = cand.iloc[0].to_dict()
+            else:
+                cand = df[
+                    (df["method"] == method)
+                    & (df["K"] == TOP_SELECTION_K)
+                    & (df["retain_drop_hit_pp"] <= BASE_THRESHOLD_PP)
+                ].copy()
+                if cand.empty:
+                    raise ValueError(f"No valid source row found for method={method}")
+                cand = cand.sort_values(
+                    ["forget_drop_hit_pp", "lambda_retain"],
+                    ascending=[False, True],
+                    kind="mergesort",
+                ).reset_index(drop=True)
+                chosen = cand.iloc[0].to_dict()
+                
+            chosen["base_threshold_pp"] = float(BASE_THRESHOLD_PP)
+            selected.append(chosen)
 
     summary_df = pd.DataFrame(selected)
     summary_df["base_mode"] = BASE_MODE
@@ -938,6 +978,16 @@ jobs = [
     for setting in SETTINGS
     for method in TARGET_METHODS
 ]
+
+# Apply all relevant UGP parameter filters
+if args.setting_id is not None:
+    jobs = [j for j in jobs if j[0]["setting_id"] == args.setting_id]
+if args.setting_type is not None:
+    jobs = [j for j in jobs if j[0]["setting_type"] == args.setting_type]
+if args.setting_value_raw is not None:
+    # Convert settings dictionary value to string so integer flags (e.g., 15) match safely
+    jobs = [j for j in jobs if str(j[0]["setting_value_raw"]) == args.setting_value_raw]
+
 jobs = [job for idx, job in enumerate(jobs) if idx % NUM_WORKERS == WORKER_ID]
 
 print(f"Total settings           : {len(SETTINGS)}")
