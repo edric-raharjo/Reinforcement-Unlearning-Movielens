@@ -1,0 +1,5 @@
+.\run_all_best_configs.ps1 -WorkerID 0 -NumWorkers 5 -NumRuns 10
+.\run_all_best_configs.ps1 -WorkerID 1 -NumWorkers 5 -NumRuns 10
+.\run_all_best_configs.ps1 -WorkerID 2 -NumWorkers 5 -NumRuns 10
+.\run_all_best_configs.ps1 -WorkerID 3 -NumWorkers 5 -NumRuns 10
+.\run_all_best_configs.ps1 -WorkerID 4 -NumWorkers 5 -NumRuns 10
