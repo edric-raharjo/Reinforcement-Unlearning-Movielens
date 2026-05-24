@@ -878,12 +878,16 @@ def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_m
         done_set.add(key)
     with file_lock("progress"):
         existing = pd.read_csv(PROGRESS_PATH) if os.path.exists(PROGRESS_PATH) else pd.DataFrame(columns=PROGRESS_KEY_COLS + ["status", "unlearned_model_path"])
+        
+        if not existing.empty and "run_idx" not in existing.columns:
+            existing["run_idx"] = 1
+            
         row = pd.DataFrame([{
             "setting_id": setting_id,
             "method": method,
             "status": status,
             "unlearned_model_path": unlearned_model_path,
-            "run_idx": run_idx,
+            "run_idx": int(run_idx),
         }])
         merged = pd.concat([existing, row], ignore_index=True)
         merged = merged.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
@@ -894,6 +898,9 @@ def load_metrics():
     with file_lock("metrics"):
         if os.path.exists(METRICS_PATH):
             df = pd.read_csv(METRICS_PATH)
+            # Safe safeguard: if an old run file exists without 'run_idx', backfill it with 1
+            if "run_idx" not in df.columns:
+                df["run_idx"] = 1
             df = df.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
             return df.to_dict("records")
     return []
@@ -905,10 +912,16 @@ def save_metrics(metric_rows):
     with file_lock("metrics"):
         existing = pd.read_csv(METRICS_PATH) if os.path.exists(METRICS_PATH) else pd.DataFrame()
         incoming = pd.DataFrame(metric_rows)
+        
+        # Guarantee both dataframes strictly enforce the presence of 'run_idx' column
+        if not existing.empty and "run_idx" not in existing.columns:
+            existing["run_idx"] = 1
+        if "run_idx" not in incoming.columns:
+            incoming["run_idx"] = 1
+            
         merged = pd.concat([existing, incoming], ignore_index=True)
         merged = merged.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
         atomic_write_csv(merged, METRICS_PATH)
-
 
 def build_model_output_path(setting, source_row):
     return os.path.join(
@@ -989,6 +1002,7 @@ def append_metric_rows(
             "base_forget_NDCG": bn_f,
             "base_combined_Hit": bh_c,
             "base_combined_NDCG": bn_c,
+            "run_idx": int(args.run_idx),
         })
     save_metrics(new_rows)
 
