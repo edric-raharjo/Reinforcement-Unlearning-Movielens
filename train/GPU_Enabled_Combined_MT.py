@@ -47,18 +47,32 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # required for cuBLAS determi
 torch.use_deterministic_algorithms(True, warn_only=True)
 
 # ---------------------------------------------------------------------------
-# CLI argument
+# CLI argument Parsing with Custom Hyperparameter Overrides
 # ---------------------------------------------------------------------------
+import argparse
 
-if len(sys.argv) < 2:
-    raise ValueError(
-        "Usage: python GPU_Enabled_Combine.py <forget_pct> [num_workers] [worker_id] [phase]"
-    )
+parser = argparse.ArgumentParser(description="GPU Enabled Combined MT with explicit config overrides")
+parser.add_argument("forget_pct", type=int, help="Forget percentage")
+parser.add_argument("--num_workers", type=int, default=1)
+parser.add_argument("--worker_id", type=int, default=0)
+parser.add_argument("--phase", type=int, default=0, choices=[0, 1, 2], help="0=both, 1=phase1 only, 2=phase2 only")
+# Targeted configuration overrides
+parser.add_argument("--train_lr", type=float, default=None)
+parser.add_argument("--gamma", type=float, default=None)
+parser.add_argument("--hidden_dim", type=int, default=None)
+parser.add_argument("--train_batch", type=int, default=None)
+parser.add_argument("--unlearn_lr", type=float, default=None)
+parser.add_argument("--unlearn_iters", type=int, default=None)
+parser.add_argument("--lambda_retain", type=float, default=None)
+parser.add_argument("--method", type=str, default=None, choices=["Ye_ApxI", "Ye_multi", "New_True_inf", "New_Max", "Gradient_Ascent"])
+parser.add_argument("--run_idx", type=int, default=1, help="Index of the run for multiple statistical passes")
 
-FORGET_PERCENTAGE = int(sys.argv[1])
-NUM_WORKERS = int(sys.argv[2]) if len(sys.argv) > 2 else 1
-WORKER_ID   = int(sys.argv[3]) if len(sys.argv) > 3 else 0
-RUN_PHASE   = int(sys.argv[4]) if len(sys.argv) > 4 else 0  # 0=both, 1=phase1 only, 2=phase2 only
+args = parser.parse_args()
+
+FORGET_PERCENTAGE = args.forget_pct
+NUM_WORKERS = args.num_workers
+WORKER_ID   = args.worker_id
+RUN_PHASE   = args.phase
 
 assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 
@@ -68,7 +82,7 @@ assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 
 DATA_DIR = "C:/Bob/ml-1m"
 if FORGET_PERCENTAGE in [1, 20]:
-    RESULTS_BASE = f"C:/Bob/results/{FORGET_PERCENTAGE}_percent"
+    RESULTS_BASE = f"C:/Bob/results/results_normal/{FORGET_PERCENTAGE}_percent"
 else:
     RESULTS_BASE = f"D:/Bob_Skripsi_Do Not Delete/results/{FORGET_PERCENTAGE}_percent"
 MODELS_DIR = os.path.join(RESULTS_BASE, "models")
@@ -101,18 +115,23 @@ UNLEARN_BATCH = 64
 KS = [1, 5, 10]
 PATIENCE = max(10, int(0.1 * NUM_EPISODES / LOG_INTERVAL))
 
-TRAIN_LRS = [1e-3, 1e-4, 1e-5]
-GAMMAS = [0.99, 0.98, 0.97]
-HIDDEN_DIMS = [128, 256, 512]
-TRAIN_BATCH_SIZES = [1, 2, 4]
+TRAIN_LRS = [args.train_lr] if args.train_lr is not None else [1e-3, 1e-4, 1e-5]
+GAMMAS = [args.gamma] if args.gamma is not None else [0.99, 0.98, 0.97]
+HIDDEN_DIMS = [args.hidden_dim] if args.hidden_dim is not None else [128, 256, 512]
+TRAIN_BATCH_SIZES = [args.train_batch] if args.train_batch is not None else [1, 2, 4]
 
-UNLEARN_LRS = [1e-3, 1e-4, 1e-5]
-UNLEARN_ITERS = [500, 1000, 1500, 2000]
+UNLEARN_LRS = [args.unlearn_lr] if args.unlearn_lr is not None else [1e-3, 1e-4, 1e-5]
+UNLEARN_ITERS = [args.unlearn_iters] if args.unlearn_iters is not None else [500, 1000, 1500, 2000]
 
-LAMBDA_VALS = sorted(set(
-    [round(0.1 * i, 1) for i in range(1, 11)] +
-    [0.5 * i for i in range(3, 21)]
-))
+if args.lambda_retain is not None:
+    LAMBDA_VALS = [args.lambda_retain]
+else:
+    LAMBDA_VALS = sorted(set(
+        [round(0.1 * i, 1) for i in range(1, 11)] +
+        [0.5 * i for i in range(3, 21)]
+    ))
+
+TARGET_METHOD = args.method
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(
@@ -621,6 +640,7 @@ def append_eval_rows(
             "base_retain_NDCG": bn_r,
             "base_forget_Hit": bh_f,
             "base_forget_NDCG": bn_f,
+            "run_idx": args.run_idx,
         })
 
     pd.DataFrame(all_results).to_csv(RESULTS_PATH, index=False)
@@ -1009,7 +1029,7 @@ def unlearned_model_path(t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iter
     name = (
         f"unlearn__{method}__tlr{_fmt(t_lr)}__g{_fmt(gamma)}"
         f"__h{hidden_dim}__bs{train_bs}__ulr{_fmt(u_lr)}"
-        f"__ui{u_iters}__lam{_fmt(lam)}.pt"
+        f"__ui{u_iters}__lam{_fmt(lam)}__run{args.run_idx}.pt"
     )
     return os.path.join(MODELS_DIR, name)
 
@@ -1028,12 +1048,11 @@ def retain_buf_path(t_lr, gamma, hidden_dim, train_bs):
 
 _TRAIN_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs"]
 _TRAIN_KEY_COLS = ["train_lr", "gamma", "hidden_dim", "train_batch", "K"]
-_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs", "u_lr", "u_iters", "lam", "method"]
+_PROG_COLS = ["t_lr", "gamma", "hidden_dim", "train_bs", "u_lr", "u_iters", "lam", "method", "run_idx"]
 _KEY_COLS = [
     "train_lr", "gamma", "hidden_dim", "train_batch",
-    "unlearn_lr", "unlearn_iters", "lambda_retain", "method", "K",
+    "unlearn_lr", "unlearn_iters", "lambda_retain", "method", "K", "run_idx",
 ]
-
 
 def load_train_progress(train_configs):
     if os.path.exists(TRAIN_PROGRESS_PATH):
@@ -1068,9 +1087,9 @@ def load_progress():
 def mark_done(
     prog_df, done_set,
     t_lr, gamma, hidden_dim, train_bs,
-    u_lr, u_iters, lam, method,
+    u_lr, u_iters, lam, method, run_idx,
 ):
-    key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
+    key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, run_idx)
     if key not in done_set:
         done_set.add(key)
         row = pd.DataFrame([dict(zip(_PROG_COLS, key))])
@@ -1295,14 +1314,18 @@ rank_df = (
     .reset_index(drop=True)
 )
 
-# Calculate top percentage based on the total expected configs (81), not the length of rank_df
-n_top = max(1, int(round(len(train_configs) * TOP_PERCENT)))
-top_configs_df = rank_df.head(n_top)
+if args.train_lr is not None and args.gamma is not None and args.hidden_dim is not None and args.train_batch is not None:
+    all_top_configs = [(args.train_lr, args.gamma, args.hidden_dim, args.train_batch)]
+    n_top = 1
+else:
+    # Calculate top percentage based on the total expected configs (81), not the length of rank_df
+    n_top = max(1, int(round(len(train_configs) * TOP_PERCENT)))
+    top_configs_df = rank_df.head(n_top)
 
-all_top_configs = [
-    (row["train_lr"], row["gamma"], int(row["hidden_dim"]), int(row["train_batch"]))
-    for _, row in top_configs_df.iterrows()
-]
+    all_top_configs = [
+        (row["train_lr"], row["gamma"], int(row["hidden_dim"]), int(row["train_batch"]))
+        for _, row in top_configs_df.iterrows()
+    ]
 
 
 def load_legacy_unlearn_progress():
@@ -1472,418 +1495,421 @@ for cfg_idx, (t_lr, gamma, hidden_dim, train_bs) in enumerate(top_configs):
         # ==============================================================
         lam = 1.0
         method = "Ye_ApxI"
-        combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+        if TARGET_METHOD is None or TARGET_METHOD == method:
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
-        if combo_key in done_set:
-            ul_skipped += 1
-            ul_done += 1
-            print(
-                f" [SKIP {ul_done:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
-            )
-        else:
-            print(
-                f" [RUN {ul_done + 1:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
-                end="",
-                flush=True,
-            )
-            net_copy = copy.deepcopy(net)
-            t_ul0 = time.time()
-            lf, lr_, lt = unlearning_finetune_ye_apxi(
-                net_copy,
-                forget_buffer=f_buf,
-                retain_buffer=r_buf,
-                candidate_movies=candidate_movies,
-                num_iters=u_iters,
-                batch_size=UNLEARN_BATCH,
-                lambda_retain=lam,
-                lr=u_lr,
-                log_every=UNLEARN_LOG_INTERVAL,
-                loss_log_rows=unlearn_loss_log_rows,
-                loss_log_meta={
-                    "train_lr": t_lr,
-                    "gamma": gamma,
-                    "hidden_dim": hidden_dim,
-                    "train_batch": train_bs,
-                    "unlearn_lr": u_lr,
-                    "unlearn_iters": u_iters,
-                    "lambda_retain": lam,
-                    "method": method,
-                },
-            )
-            unlearn_time_s = round(time.time() - t_ul0, 2)
-            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+            if combo_key in done_set:
+                ul_skipped += 1
+                ul_done += 1
+                print(
+                    f" [SKIP {ul_done:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                )
+            else:
+                print(
+                    f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                    end="",
+                    flush=True,
+                )
+                net_copy = copy.deepcopy(net)
+                t_ul0 = time.time()
+                lf, lr_, lt = unlearning_finetune_ye_apxi(
+                    net_copy,
+                    forget_buffer=f_buf,
+                    retain_buffer=r_buf,
+                    candidate_movies=candidate_movies,
+                    num_iters=u_iters,
+                    batch_size=UNLEARN_BATCH,
+                    lambda_retain=lam,
+                    lr=u_lr,
+                    log_every=UNLEARN_LOG_INTERVAL,
+                    loss_log_rows=unlearn_loss_log_rows,
+                    loss_log_meta={
+                        "train_lr": t_lr,
+                        "gamma": gamma,
+                        "hidden_dim": hidden_dim,
+                        "train_batch": train_bs,
+                        "unlearn_lr": u_lr,
+                        "unlearn_iters": u_iters,
+                        "lambda_retain": lam,
+                        "method": method,
+                    },
+                )
+                unlearn_time_s = round(time.time() - t_ul0, 2)
+                print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
 
-            ul_path = unlearned_model_path(
-                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
-            )
-            if SAVE_UNLEARNED_MODELS:
-                torch.save(net_copy.state_dict(), ul_path)
+                ul_path = unlearned_model_path(
+                    t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+                )
+                if SAVE_UNLEARNED_MODELS:
+                    torch.save(net_copy.state_dict(), ul_path)
 
-            append_eval_rows(
-                all_results,
-                net_after=net_copy,
-                baseline=baseline,
-                train_lr=t_lr,
-                gamma=gamma,
-                hidden_dim=hidden_dim,
-                train_batch=train_bs,
-                train_time_s=train_time_s,
-                trained_model_path=t_model_path,
-                unlearn_lr=u_lr,
-                unlearn_iters=u_iters,
-                lambda_retain=lam,
-                method=method,
-                unlearn_time_s=unlearn_time_s,
-                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
-                loss_forget_final=lf,
-                loss_retain_final=lr_,
-                loss_total_final=lt,
-            )
+                append_eval_rows(
+                    all_results,
+                    net_after=net_copy,
+                    baseline=baseline,
+                    train_lr=t_lr,
+                    gamma=gamma,
+                    hidden_dim=hidden_dim,
+                    train_batch=train_bs,
+                    train_time_s=train_time_s,
+                    trained_model_path=t_model_path,
+                    unlearn_lr=u_lr,
+                    unlearn_iters=u_iters,
+                    lambda_retain=lam,
+                    method=method,
+                    unlearn_time_s=unlearn_time_s,
+                    unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                    loss_forget_final=lf,
+                    loss_retain_final=lr_,
+                    loss_total_final=lt,
+                )
 
-            progress_df = mark_done(
-                progress_df, done_set,
-                t_lr, gamma, hidden_dim, train_bs,
-                u_lr, u_iters, lam, method,
-            )
-            ul_done += 1
+                progress_df = mark_done(
+                    progress_df, done_set,
+                    t_lr, gamma, hidden_dim, train_bs,
+                    u_lr, u_iters, lam, method, args.run_idx,
+                )
+                ul_done += 1
 
         # ==============================================================
         # Method 2 — Ye_multi (lambda fixed at 1.0)
         # ==============================================================
         lam = 1.0
         method = "Ye_multi"
-        combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+        if TARGET_METHOD is None or TARGET_METHOD == method:
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
+            if combo_key in done_set:
+                ul_skipped += 1
+                ul_done += 1
+                print(
+                    f" [SKIP {ul_done:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                )
+            else:
+                print(
+                    f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                    end="",
+                    flush=True,
+                )
+                net_copy = copy.deepcopy(net)
+                t_ul0 = time.time()
+                lf, lr_, lt = unlearning_finetune_ye_multi(
+                    net_copy,
+                    forget_buffer=f_buf,
+                    retain_buffer=r_buf,
+                    candidate_movies=candidate_movies,
+                    num_iters=u_iters,
+                    batch_size=UNLEARN_BATCH,
+                    lambda_retain=lam,
+                    lr=u_lr,
+                    log_every=UNLEARN_LOG_INTERVAL,
+                    loss_log_rows=unlearn_loss_log_rows,
+                    loss_log_meta={
+                        "train_lr": t_lr,
+                        "gamma": gamma,
+                        "hidden_dim": hidden_dim,
+                        "train_batch": train_bs,
+                        "unlearn_lr": u_lr,
+                        "unlearn_iters": u_iters,
+                        "lambda_retain": lam,
+                        "method": method,
+                    },
+                )
+                unlearn_time_s = round(time.time() - t_ul0, 2)
+                print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
 
-        if combo_key in done_set:
-            ul_skipped += 1
-            ul_done += 1
-            print(
-                f" [SKIP {ul_done:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
-            )
-        else:
-            print(
-                f" [RUN {ul_done + 1:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
-                end="",
-                flush=True,
-            )
-            net_copy = copy.deepcopy(net)
-            t_ul0 = time.time()
-            lf, lr_, lt = unlearning_finetune_ye_multi(
-                net_copy,
-                forget_buffer=f_buf,
-                retain_buffer=r_buf,
-                candidate_movies=candidate_movies,
-                num_iters=u_iters,
-                batch_size=UNLEARN_BATCH,
-                lambda_retain=lam,
-                lr=u_lr,
-                log_every=UNLEARN_LOG_INTERVAL,
-                loss_log_rows=unlearn_loss_log_rows,
-                loss_log_meta={
-                    "train_lr": t_lr,
-                    "gamma": gamma,
-                    "hidden_dim": hidden_dim,
-                    "train_batch": train_bs,
-                    "unlearn_lr": u_lr,
-                    "unlearn_iters": u_iters,
-                    "lambda_retain": lam,
-                    "method": method,
-                },
-            )
-            unlearn_time_s = round(time.time() - t_ul0, 2)
-            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+                ul_path = unlearned_model_path(
+                    t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+                )
+                if SAVE_UNLEARNED_MODELS:
+                    torch.save(net_copy.state_dict(), ul_path)
 
-            ul_path = unlearned_model_path(
-                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
-            )
-            if SAVE_UNLEARNED_MODELS:
-                torch.save(net_copy.state_dict(), ul_path)
+                append_eval_rows(
+                    all_results,
+                    net_after=net_copy,
+                    baseline=baseline,
+                    train_lr=t_lr,
+                    gamma=gamma,
+                    hidden_dim=hidden_dim,
+                    train_batch=train_bs,
+                    train_time_s=train_time_s,
+                    trained_model_path=t_model_path,
+                    unlearn_lr=u_lr,
+                    unlearn_iters=u_iters,
+                    lambda_retain=lam,
+                    method=method,
+                    unlearn_time_s=unlearn_time_s,
+                    unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                    loss_forget_final=lf,
+                    loss_retain_final=lr_,
+                    loss_total_final=lt,
+                )
 
-            append_eval_rows(
-                all_results,
-                net_after=net_copy,
-                baseline=baseline,
-                train_lr=t_lr,
-                gamma=gamma,
-                hidden_dim=hidden_dim,
-                train_batch=train_bs,
-                train_time_s=train_time_s,
-                trained_model_path=t_model_path,
-                unlearn_lr=u_lr,
-                unlearn_iters=u_iters,
-                lambda_retain=lam,
-                method=method,
-                unlearn_time_s=unlearn_time_s,
-                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
-                loss_forget_final=lf,
-                loss_retain_final=lr_,
-                loss_total_final=lt,
-            )
-
-            progress_df = mark_done(
-                progress_df, done_set,
-                t_lr, gamma, hidden_dim, train_bs,
-                u_lr, u_iters, lam, method,
-            )
-            ul_done += 1
+                progress_df = mark_done(
+                    progress_df, done_set,
+                    t_lr, gamma, hidden_dim, train_bs,
+                    u_lr, u_iters, lam, method, args.run_idx,
+                )
+                ul_done += 1
 
         # ==============================================================
         # Method 3 — New_True_inf (lambda swept)
         # ==============================================================
         method = "New_True_inf"
-        for lam in LAMBDA_VALS:
-            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+        if TARGET_METHOD is None or TARGET_METHOD == method:
+            for lam in LAMBDA_VALS:
+                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
+                if combo_key in done_set:
+                    ul_skipped += 1
+                    ul_done += 1
+                    print(
+                        f" [SKIP {ul_done:>4}/{total_ul}] "
+                        f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                    )
+                    continue
 
-            if combo_key in done_set:
-                ul_skipped += 1
-                ul_done += 1
                 print(
-                    f" [SKIP {ul_done:>4}/{total_ul}] "
-                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                    f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                    end="",
+                    flush=True,
                 )
-                continue
+                net_copy = copy.deepcopy(net)
+                t_ul0 = time.time()
+                lf, lr_, lt = unlearning_finetune_new_true_inf(
+                    net_copy,
+                    forget_buffer=f_buf,
+                    retain_buffer=r_buf,
+                    candidate_movies=candidate_movies,
+                    num_iters=u_iters,
+                    batch_size=UNLEARN_BATCH,
+                    lambda_retain=lam,
+                    lr=u_lr,
+                    log_every=UNLEARN_LOG_INTERVAL,
+                    loss_log_rows=unlearn_loss_log_rows,
+                    loss_log_meta={
+                        "train_lr": t_lr,
+                        "gamma": gamma,
+                        "hidden_dim": hidden_dim,
+                        "train_batch": train_bs,
+                        "unlearn_lr": u_lr,
+                        "unlearn_iters": u_iters,
+                        "lambda_retain": lam,
+                        "method": method,
+                    },
+                )
+                unlearn_time_s = round(time.time() - t_ul0, 2)
+                print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
 
-            print(
-                f" [RUN {ul_done + 1:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
-                end="",
-                flush=True,
-            )
-            net_copy = copy.deepcopy(net)
-            t_ul0 = time.time()
-            lf, lr_, lt = unlearning_finetune_new_true_inf(
-                net_copy,
-                forget_buffer=f_buf,
-                retain_buffer=r_buf,
-                candidate_movies=candidate_movies,
-                num_iters=u_iters,
-                batch_size=UNLEARN_BATCH,
-                lambda_retain=lam,
-                lr=u_lr,
-                log_every=UNLEARN_LOG_INTERVAL,
-                loss_log_rows=unlearn_loss_log_rows,
-                loss_log_meta={
-                    "train_lr": t_lr,
-                    "gamma": gamma,
-                    "hidden_dim": hidden_dim,
-                    "train_batch": train_bs,
-                    "unlearn_lr": u_lr,
-                    "unlearn_iters": u_iters,
-                    "lambda_retain": lam,
-                    "method": method,
-                },
-            )
-            unlearn_time_s = round(time.time() - t_ul0, 2)
-            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+                ul_path = unlearned_model_path(
+                    t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+                )
+                if SAVE_UNLEARNED_MODELS:
+                    torch.save(net_copy.state_dict(), ul_path)
 
-            ul_path = unlearned_model_path(
-                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
-            )
-            if SAVE_UNLEARNED_MODELS:
-                torch.save(net_copy.state_dict(), ul_path)
+                append_eval_rows(
+                    all_results,
+                    net_after=net_copy,
+                    baseline=baseline,
+                    train_lr=t_lr,
+                    gamma=gamma,
+                    hidden_dim=hidden_dim,
+                    train_batch=train_bs,
+                    train_time_s=train_time_s,
+                    trained_model_path=t_model_path,
+                    unlearn_lr=u_lr,
+                    unlearn_iters=u_iters,
+                    lambda_retain=lam,
+                    method=method,
+                    unlearn_time_s=unlearn_time_s,
+                    unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                    loss_forget_final=lf,
+                    loss_retain_final=lr_,
+                    loss_total_final=lt,
+                )
 
-            append_eval_rows(
-                all_results,
-                net_after=net_copy,
-                baseline=baseline,
-                train_lr=t_lr,
-                gamma=gamma,
-                hidden_dim=hidden_dim,
-                train_batch=train_bs,
-                train_time_s=train_time_s,
-                trained_model_path=t_model_path,
-                unlearn_lr=u_lr,
-                unlearn_iters=u_iters,
-                lambda_retain=lam,
-                method=method,
-                unlearn_time_s=unlearn_time_s,
-                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
-                loss_forget_final=lf,
-                loss_retain_final=lr_,
-                loss_total_final=lt,
-            )
-
-            progress_df = mark_done(
-                progress_df, done_set,
-                t_lr, gamma, hidden_dim, train_bs,
-                u_lr, u_iters, lam, method,
-            )
-            ul_done += 1
+                progress_df = mark_done(
+                    progress_df, done_set,
+                    t_lr, gamma, hidden_dim, train_bs,
+                    u_lr, u_iters, lam, method, args.run_idx,
+                )
+                ul_done += 1
 
         # ==============================================================
         # Method 4 — New_Max (lambda swept)
         # ==============================================================
         method = "New_Max"
-        for lam in LAMBDA_VALS:
-            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+        if TARGET_METHOD is None or TARGET_METHOD == method:
+            for lam in LAMBDA_VALS:
+                combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+                set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
-            if combo_key in done_set:
-                ul_skipped += 1
-                ul_done += 1
+                if combo_key in done_set:
+                    ul_skipped += 1
+                    ul_done += 1
+                    print(
+                        f" [SKIP {ul_done:>4}/{total_ul}] "
+                        f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                    )
+                    continue
+
                 print(
-                    f" [SKIP {ul_done:>4}/{total_ul}] "
-                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                    f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                    end="",
+                    flush=True,
                 )
-                continue
+                net_copy = copy.deepcopy(net)
+                t_ul0 = time.time()
+                lf, lr_, lt = unlearning_finetune_new_max(
+                    net_copy,
+                    forget_buffer=f_buf,
+                    retain_buffer=r_buf,
+                    candidate_movies=candidate_movies,
+                    num_iters=u_iters,
+                    batch_size=UNLEARN_BATCH,
+                    lambda_retain=lam,
+                    lr=u_lr,
+                    log_every=UNLEARN_LOG_INTERVAL,
+                    loss_log_rows=unlearn_loss_log_rows,
+                    loss_log_meta={
+                        "train_lr": t_lr,
+                        "gamma": gamma,
+                        "hidden_dim": hidden_dim,
+                        "train_batch": train_bs,
+                        "unlearn_lr": u_lr,
+                        "unlearn_iters": u_iters,
+                        "lambda_retain": lam,
+                        "method": method,
+                    },
+                )
+                unlearn_time_s = round(time.time() - t_ul0, 2)
+                print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
 
-            print(
-                f" [RUN {ul_done + 1:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
-                end="",
-                flush=True,
-            )
-            net_copy = copy.deepcopy(net)
-            t_ul0 = time.time()
-            lf, lr_, lt = unlearning_finetune_new_max(
-                net_copy,
-                forget_buffer=f_buf,
-                retain_buffer=r_buf,
-                candidate_movies=candidate_movies,
-                num_iters=u_iters,
-                batch_size=UNLEARN_BATCH,
-                lambda_retain=lam,
-                lr=u_lr,
-                log_every=UNLEARN_LOG_INTERVAL,
-                loss_log_rows=unlearn_loss_log_rows,
-                loss_log_meta={
-                    "train_lr": t_lr,
-                    "gamma": gamma,
-                    "hidden_dim": hidden_dim,
-                    "train_batch": train_bs,
-                    "unlearn_lr": u_lr,
-                    "unlearn_iters": u_iters,
-                    "lambda_retain": lam,
-                    "method": method,
-                },
-            )
-            unlearn_time_s = round(time.time() - t_ul0, 2)
-            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+                ul_path = unlearned_model_path(
+                    t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+                )
+                if SAVE_UNLEARNED_MODELS:
+                    torch.save(net_copy.state_dict(), ul_path)
 
-            ul_path = unlearned_model_path(
-                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
-            )
-            if SAVE_UNLEARNED_MODELS:
-                torch.save(net_copy.state_dict(), ul_path)
+                append_eval_rows(
+                    all_results,
+                    net_after=net_copy,
+                    baseline=baseline,
+                    train_lr=t_lr,
+                    gamma=gamma,
+                    hidden_dim=hidden_dim,
+                    train_batch=train_bs,
+                    train_time_s=train_time_s,
+                    trained_model_path=t_model_path,
+                    unlearn_lr=u_lr,
+                    unlearn_iters=u_iters,
+                    lambda_retain=lam,
+                    method=method,
+                    unlearn_time_s=unlearn_time_s,
+                    unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                    loss_forget_final=lf,
+                    loss_retain_final=lr_,
+                    loss_total_final=lt,
+                )
 
-            append_eval_rows(
-                all_results,
-                net_after=net_copy,
-                baseline=baseline,
-                train_lr=t_lr,
-                gamma=gamma,
-                hidden_dim=hidden_dim,
-                train_batch=train_bs,
-                train_time_s=train_time_s,
-                trained_model_path=t_model_path,
-                unlearn_lr=u_lr,
-                unlearn_iters=u_iters,
-                lambda_retain=lam,
-                method=method,
-                unlearn_time_s=unlearn_time_s,
-                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
-                loss_forget_final=lf,
-                loss_retain_final=lr_,
-                loss_total_final=lt,
-            )
-
-            progress_df = mark_done(
-                progress_df, done_set,
-                t_lr, gamma, hidden_dim, train_bs,
-                u_lr, u_iters, lam, method,
-            )
-            ul_done += 1
+                progress_df = mark_done(
+                    progress_df, done_set,
+                    t_lr, gamma, hidden_dim, train_bs,
+                    u_lr, u_iters, lam, method, args.run_idx,
+                )
+                ul_done += 1
 
         # ==============================================================
         # Method 5 - Gradient Ascent
         # ==============================================================
         lam = 0.0
         method = "Gradient_Ascent"
-        combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)
-        set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method)) 
+        if TARGET_METHOD is None or TARGET_METHOD == method:
+            combo_key = (t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, args.run_idx)
+            set_seed(make_seed(t_lr, gamma, hidden_dim, train_bs, u_lr, u_iters, lam, method, "unlearn", args.run_idx))
 
-        if combo_key in done_set:
-            ul_skipped += 1
-            ul_done += 1
-            print(
-                f" [SKIP {ul_done:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
-            )
-        else:
-            print(
-                f" [RUN {ul_done + 1:>4}/{total_ul}] "
-                f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
-                end="",
-                flush=True,
-            )
-            net_copy = copy.deepcopy(net)
-            t_ul0 = time.time()
-            
-            env_for = MovieLensEnv(forget_trajectories, build_state_fn, candidate_movies)
-            lf, lr_, lt = unlearning_gradient_ascent(
-                env=env_for,
-                policy_net=net_copy,
-                num_iters=u_iters,
-                batch_size=train_bs,
-                lr=u_lr,
-                gamma=gamma,
-                max_steps_per_ep=MAX_STEPS,
-                log_every=UNLEARN_LOG_INTERVAL,
-                loss_log_rows=unlearn_loss_log_rows,
-                loss_log_meta={
-                    "train_lr": t_lr,
-                    "gamma": gamma,
-                    "hidden_dim": hidden_dim,
-                    "train_batch": train_bs,
-                    "unlearn_lr": u_lr,
-                    "unlearn_iters": u_iters,
-                    "lambda_retain": lam,
-                    "method": method,
-                },
-            )
-            unlearn_time_s = round(time.time() - t_ul0, 2)
-            print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
+            if combo_key in done_set:
+                ul_skipped += 1
+                ul_done += 1
+                print(
+                    f" [SKIP {ul_done:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam}"
+                )
+            else:
+                print(
+                    f" [RUN {ul_done + 1:>4}/{total_ul}] "
+                    f"{method} u_lr={u_lr} u_iters={u_iters} lam={lam} ...",
+                    end="",
+                    flush=True,
+                )
+                net_copy = copy.deepcopy(net)
+                t_ul0 = time.time()
+                
+                env_for = MovieLensEnv(forget_trajectories, build_state_fn, candidate_movies)
+                lf, lr_, lt = unlearning_gradient_ascent(
+                    env=env_for,
+                    policy_net=net_copy,
+                    num_iters=u_iters,
+                    batch_size=train_bs,
+                    lr=u_lr,
+                    gamma=gamma,
+                    max_steps_per_ep=MAX_STEPS,
+                    log_every=UNLEARN_LOG_INTERVAL,
+                    loss_log_rows=unlearn_loss_log_rows,
+                    loss_log_meta={
+                        "train_lr": t_lr,
+                        "gamma": gamma,
+                        "hidden_dim": hidden_dim,
+                        "train_batch": train_bs,
+                        "unlearn_lr": u_lr,
+                        "unlearn_iters": u_iters,
+                        "lambda_retain": lam,
+                        "method": method,
+                    },
+                )
+                unlearn_time_s = round(time.time() - t_ul0, 2)
+                print(f" done in {unlearn_time_s:.1f}s (Lf={lf:.4f}, Lr={lr_:.4f})")
 
-            ul_path = unlearned_model_path(
-                t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
-            )
-            if SAVE_UNLEARNED_MODELS:
-                torch.save(net_copy.state_dict(), ul_path)
+                ul_path = unlearned_model_path(
+                    t_lr, gamma, hidden_dim, train_bs, method, u_lr, u_iters, lam
+                )
+                if SAVE_UNLEARNED_MODELS:
+                    torch.save(net_copy.state_dict(), ul_path)
 
-            append_eval_rows(
-                all_results,
-                net_after=net_copy,
-                baseline=baseline,
-                train_lr=t_lr,
-                gamma=gamma,
-                hidden_dim=hidden_dim,
-                train_batch=train_bs,
-                train_time_s=train_time_s,
-                trained_model_path=t_model_path,
-                unlearn_lr=u_lr,
-                unlearn_iters=u_iters,
-                lambda_retain=lam,
-                method=method,
-                unlearn_time_s=unlearn_time_s,
-                unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
-                loss_forget_final=lf,
-                loss_retain_final=lr_,
-                loss_total_final=lt,
-            )
+                append_eval_rows(
+                    all_results,
+                    net_after=net_copy,
+                    baseline=baseline,
+                    train_lr=t_lr,
+                    gamma=gamma,
+                    hidden_dim=hidden_dim,
+                    train_batch=train_bs,
+                    train_time_s=train_time_s,
+                    trained_model_path=t_model_path,
+                    unlearn_lr=u_lr,
+                    unlearn_iters=u_iters,
+                    lambda_retain=lam,
+                    method=method,
+                    unlearn_time_s=unlearn_time_s,
+                    unlearned_model_path=ul_path if SAVE_UNLEARNED_MODELS else "",
+                    loss_forget_final=lf,
+                    loss_retain_final=lr_,
+                    loss_total_final=lt,
+                )
 
-            progress_df = mark_done(
-                progress_df, done_set,
-                t_lr, gamma, hidden_dim, train_bs,
-                u_lr, u_iters, lam, method,
-            )
-            ul_done += 1
+                progress_df = mark_done(
+                    progress_df, done_set,
+                    t_lr, gamma, hidden_dim, train_bs,
+                    u_lr, u_iters, lam, method, args.run_idx,
+                )
+                ul_done += 1
 
     print(f" ✓ Config done — {ul_done - ul_skipped} ran, {ul_skipped} skipped")
     del net, r_buf

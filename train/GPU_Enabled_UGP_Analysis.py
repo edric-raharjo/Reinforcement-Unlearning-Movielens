@@ -50,8 +50,32 @@ torch.use_deterministic_algorithms(True, warn_only=True)
 # ---------------------------------------------------------------------------
 # Runtime configuration
 # ---------------------------------------------------------------------------
-NUM_WORKERS = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-WORKER_ID = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+# ---------------------------------------------------------------------------
+# Runtime configuration
+# ---------------------------------------------------------------------------
+import argparse
+
+parser = argparse.ArgumentParser(description="GPU Enabled UGP Analysis with exact overrides")
+parser.add_argument("--num_workers", type=int, default=1)
+parser.add_argument("--worker_id", type=int, default=0)
+parser.add_argument("--method", type=str, default=None, choices=["Ye_multi", "New_True_inf", "Gradient_Ascent"])
+parser.add_argument("--setting_id", type=int, default=None)
+parser.add_argument("--setting_type", type=str, default=None)
+parser.add_argument("--setting_value_raw", type=str, default=None)
+parser.add_argument("--train_lr", type=float, default=None)
+parser.add_argument("--gamma", type=float, default=None)
+parser.add_argument("--hidden_dim", type=int, default=None)
+parser.add_argument("--train_batch", type=int, default=None)
+parser.add_argument("--unlearn_lr", type=float, default=None)
+parser.add_argument("--unlearn_iters", type=int, default=None)
+parser.add_argument("--lambda_retain", type=float, default=None)
+parser.add_argument("--run_idx", type=int, default=1)
+parser.add_argument("--trained_model_path", type=str, default=None, help="Explicit path to the baseline trained model file")
+
+args, _ = parser.parse_known_args()
+
+NUM_WORKERS = args.num_workers
+WORKER_ID = args.worker_id
 assert 0 <= WORKER_ID < NUM_WORKERS, "worker_id must be in [0, num_workers)"
 
 BASE_MODE = "Normal"
@@ -60,7 +84,7 @@ BASE_THRESHOLD_PP = 5.0
 TOP_SELECTION_K = 10
 TARGET_FORGET_COUNT = 60  # 1% of 6040 users
 
-TARGET_METHODS = ["Ye_multi", "New_True_inf", "Gradient_Ascent"]
+TARGET_METHODS = [args.method] if args.method else ["Ye_multi", "New_True_inf", "Gradient_Ascent"]
 KS = [1, 5, 10]
 MAX_STEPS = 30
 UNLEARN_BATCH = 64
@@ -81,7 +105,7 @@ SOURCE_RESULTS_CSV_CANDIDATES = [
     "D:/Bob_Skripsi_Do Not Delete/results/1_percent/tuning_full_results.csv",
 ]
 
-DEFAULT_RESULTS_ROOT = "D:/Bob_Skripsi_Do Not Delete/results_ugp_analysis"
+DEFAULT_RESULTS_ROOT = "C:/Bob/results/results_ugp_analysis"
 RESULTS_ROOT = os.environ.get("UGP_RESULTS_ROOT", DEFAULT_RESULTS_ROOT)
 METRICS_DIR = os.path.join(RESULTS_ROOT, "metrics")
 MODELS_DIR = os.path.join(RESULTS_ROOT, "models")
@@ -198,10 +222,16 @@ def resolve_existing_path(candidates, description):
 
 
 DATA_DIR = resolve_existing_path(DATA_DIR_CANDIDATES, "MovieLens data directory")
-SOURCE_RESULTS_CSV = resolve_existing_path(SOURCE_RESULTS_CSV_CANDIDATES, "Source tuning_full_results.csv")
+
+# If manual overrides are provided, we don't need to strictly look up the old csv candidate list
+if args.train_lr is not None:
+    SOURCE_RESULTS_CSV = None
+    print(" Running with manual hyperparameter overrides. Skipping source CSV file validation.")
+else:
+    SOURCE_RESULTS_CSV = resolve_existing_path(SOURCE_RESULTS_CSV_CANDIDATES, "Source tuning_full_results.csv")
+    print(f"SOURCE_RESULTS_CSV : {SOURCE_RESULTS_CSV}")
 
 print(f"DATA_DIR           : {DATA_DIR}")
-print(f"SOURCE_RESULTS_CSV : {SOURCE_RESULTS_CSV}")
 print(f"RESULTS_ROOT       : {RESULTS_ROOT}")
 print(f"NUM_WORKERS        : {NUM_WORKERS}")
 print(f"WORKER_ID          : {WORKER_ID}")
@@ -703,21 +733,39 @@ def select_source_rows(source_csv):
 
     selected = []
     for method in TARGET_METHODS:
-        cand = df[
-            (df["method"] == method)
-            & (df["K"] == TOP_SELECTION_K)
-            & (df["retain_drop_hit_pp"] <= BASE_THRESHOLD_PP)
-        ].copy()
-        if cand.empty:
-            raise ValueError(f"No valid source row found for method={method}")
-        cand = cand.sort_values(
-            ["forget_drop_hit_pp", "lambda_retain"],
-            ascending=[False, True],
-            kind="mergesort",
-        ).reset_index(drop=True)
-        chosen = cand.iloc[0].to_dict()
-        chosen["base_threshold_pp"] = float(BASE_THRESHOLD_PP)
-        selected.append(chosen)
+            if args.train_lr is not None:
+                # Bypass top selection and pluck the exact row provided by the CLI
+                cand = df[
+                    (df["method"] == method) &
+                    (df["K"] == TOP_SELECTION_K) &
+                    (np.isclose(df["train_lr"], args.train_lr, atol=1e-5)) &
+                    (np.isclose(df["gamma"], args.gamma, atol=1e-5)) &
+                    (df["hidden_dim"] == args.hidden_dim) &
+                    (df["train_batch"] == args.train_batch) &
+                    (np.isclose(df["unlearn_lr"], args.unlearn_lr, atol=1e-5)) &
+                    (df["unlearn_iters"] == args.unlearn_iters) &
+                    (np.isclose(df["lambda_retain"], args.lambda_retain, atol=1e-5))
+                ].copy()
+                if cand.empty:
+                    raise ValueError(f"Manual override config not found in CSV for {method}")
+                chosen = cand.iloc[0].to_dict()
+            else:
+                cand = df[
+                    (df["method"] == method)
+                    & (df["K"] == TOP_SELECTION_K)
+                    & (df["retain_drop_hit_pp"] <= BASE_THRESHOLD_PP)
+                ].copy()
+                if cand.empty:
+                    raise ValueError(f"No valid source row found for method={method}")
+                cand = cand.sort_values(
+                    ["forget_drop_hit_pp", "lambda_retain"],
+                    ascending=[False, True],
+                    kind="mergesort",
+                ).reset_index(drop=True)
+                chosen = cand.iloc[0].to_dict()
+                
+            chosen["base_threshold_pp"] = float(BASE_THRESHOLD_PP)
+            selected.append(chosen)
 
     summary_df = pd.DataFrame(selected)
     summary_df["base_mode"] = BASE_MODE
@@ -725,15 +773,39 @@ def select_source_rows(source_csv):
     return summary_df
 
 
-selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
-with file_lock("selection_summary"):
-    atomic_write_csv(selection_summary_df, SELECTION_SUMMARY_PATH)
-print("Selected source rows:")
-print(selection_summary_df[[
-    "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
-    "trained_model_path", "unlearn_lr", "unlearn_iters", "lambda_retain",
-    "retain_drop_hit_pp", "forget_drop_hit_pp"
-]].to_string(index=False))
+if args.train_lr is not None:
+    # Build a mock dictionary row to populate your program's metadata structures directly
+    # This matches the expected format of your hardcoded configurations perfectly
+    # Use the passed path if available; otherwise fall back to default generation
+    t_path = args.trained_model_path if args.trained_model_path is not None else os.path.join(RESULTS_ROOT, "models", f"trained__tlr{_fmt(args.train_lr)}__g{_fmt(args.gamma)}__h{args.hidden_dim}__bs{args.train_batch}.pt")
+    # Clean up file separators for safety
+    t_path = os.path.normpath(t_path).replace("\\", "/")
+
+    mock_row = {
+        "method": args.method,
+        "source_row_id": -1,
+        "train_lr": args.train_lr,
+        "gamma": args.gamma,
+        "hidden_dim": args.hidden_dim,
+        "train_batch": args.train_batch,
+        "trained_model_path": t_path,
+        "unlearn_lr": args.unlearn_lr,
+        "unlearn_iters": args.unlearn_iters,
+        "lambda_retain": args.lambda_retain,
+        "base_threshold_pp": 0.0
+    }
+    selection_summary_df = pd.DataFrame([mock_row])
+    print(f" Skipping CSV parsing. Successfully generated meta-dictionary for hardcoded config: {args.method}")
+else:
+    selection_summary_df = select_source_rows(SOURCE_RESULTS_CSV)
+    with file_lock("selection_summary"):
+        atomic_write_csv(selection_summary_df, SELECTION_SUMMARY_PATH)
+    print("Selected source rows:")
+    print(selection_summary_df[[
+        "method", "source_row_id", "train_lr", "gamma", "hidden_dim", "train_batch",
+        "trained_model_path", "unlearn_lr", "unlearn_iters", "lambda_retain",
+        "retain_drop_hit_pp", "forget_drop_hit_pp"
+    ]].to_string(index=False))
 
 
 # ---------------------------------------------------------------------------
@@ -787,9 +859,8 @@ def select_forget_users_for_setting(setting, users_meta):
 # ---------------------------------------------------------------------------
 # Progress and metrics persistence
 # ---------------------------------------------------------------------------
-PROGRESS_KEY_COLS = ["setting_id", "method"]
-METRIC_KEY_COLS = ["setting_id", "method", "K"]
-
+PROGRESS_KEY_COLS = ["setting_id", "method", "run_idx"]
+METRIC_KEY_COLS = ["setting_id", "method", "K", "run_idx"]
 
 def load_progress():
     with file_lock("progress"):
@@ -801,28 +872,35 @@ def load_progress():
         return pd.DataFrame(columns=cols), set()
 
 
-def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path):
-    key = (setting_id, method)
+def mark_progress(progress_df, done_set, setting_id, method, status, unlearned_model_path, run_idx):
+    key = (setting_id, method, run_idx)
     if key not in done_set:
         done_set.add(key)
     with file_lock("progress"):
         existing = pd.read_csv(PROGRESS_PATH) if os.path.exists(PROGRESS_PATH) else pd.DataFrame(columns=PROGRESS_KEY_COLS + ["status", "unlearned_model_path"])
+        
+        if not existing.empty and "run_idx" not in existing.columns:
+            existing["run_idx"] = 1
+            
         row = pd.DataFrame([{
             "setting_id": setting_id,
             "method": method,
             "status": status,
             "unlearned_model_path": unlearned_model_path,
+            "run_idx": int(run_idx),
         }])
         merged = pd.concat([existing, row], ignore_index=True)
         merged = merged.drop_duplicates(subset=PROGRESS_KEY_COLS, keep="last")
         atomic_write_csv(merged, PROGRESS_PATH)
     return merged
 
-
 def load_metrics():
     with file_lock("metrics"):
         if os.path.exists(METRICS_PATH):
             df = pd.read_csv(METRICS_PATH)
+            # Safe safeguard: if an old run file exists without 'run_idx', backfill it with 1
+            if "run_idx" not in df.columns:
+                df["run_idx"] = 1
             df = df.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
             return df.to_dict("records")
     return []
@@ -834,15 +912,22 @@ def save_metrics(metric_rows):
     with file_lock("metrics"):
         existing = pd.read_csv(METRICS_PATH) if os.path.exists(METRICS_PATH) else pd.DataFrame()
         incoming = pd.DataFrame(metric_rows)
+        
+        # Guarantee both dataframes strictly enforce the presence of 'run_idx' column
+        if not existing.empty and "run_idx" not in existing.columns:
+            existing["run_idx"] = 1
+        if "run_idx" not in incoming.columns:
+            incoming["run_idx"] = 1
+            
         merged = pd.concat([existing, incoming], ignore_index=True)
         merged = merged.drop_duplicates(subset=METRIC_KEY_COLS, keep="last")
         atomic_write_csv(merged, METRICS_PATH)
 
-
 def build_model_output_path(setting, source_row):
     return os.path.join(
         MODELS_DIR,
-        "ugp__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}.pt".format(
+        "ugp__s{sid:02d}__{label}__{method}__tlr{tlr}__g{g}__h{h}__bs{bs}__ulr{ulr}__ui{ui}__lam{lam}__run{rid}.pt".format(
+            rid=args.run_idx,
             sid=setting["setting_id"],
             label=slugify(setting["setting_label"]),
             method=source_row["method"],
@@ -917,6 +1002,7 @@ def append_metric_rows(
             "base_forget_NDCG": bn_f,
             "base_combined_Hit": bh_c,
             "base_combined_NDCG": bn_c,
+            "run_idx": int(args.run_idx),
         })
     save_metrics(new_rows)
 
@@ -938,6 +1024,16 @@ jobs = [
     for setting in SETTINGS
     for method in TARGET_METHODS
 ]
+
+# Apply all relevant UGP parameter filters
+if args.setting_id is not None:
+    jobs = [j for j in jobs if j[0]["setting_id"] == args.setting_id]
+if args.setting_type is not None:
+    jobs = [j for j in jobs if j[0]["setting_type"] == args.setting_type]
+if args.setting_value_raw is not None:
+    # Convert settings dictionary value to string so integer flags (e.g., 15) match safely
+    jobs = [j for j in jobs if str(j[0]["setting_value_raw"]) == args.setting_value_raw]
+
 jobs = [job for idx, job in enumerate(jobs) if idx % NUM_WORKERS == WORKER_ID]
 
 print(f"Total settings           : {len(SETTINGS)}")
@@ -968,7 +1064,7 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
     )
 
     if forget_user_count == 0:
-        progress_df = mark_progress(progress_df, done_set, setting["setting_id"], method, "NO_USERS", "")
+        progress_df = mark_progress(progress_df, done_set, setting["setting_id"], method, "NO_USERS", "", args.run_idx)
         continue
 
     forget_user_set = set(forget_users.tolist())
@@ -977,7 +1073,8 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
     forget_trajectories = [t for t in trajectories_all if t["user_id"] in forget_user_set]
     retain_trajectories = [t for t in trajectories_all if t["user_id"] in retain_user_set]
 
-    seed_run = make_seed("ugp_analysis", setting["setting_id"], method)
+    # Seed incorporates the run index!
+    seed_run = make_seed("ugp_analysis", setting["setting_id"], method, "unlearn", args.run_idx)
     set_seed(seed_run)
 
     trained_model_path = source_row["trained_model_path"]
@@ -1087,6 +1184,7 @@ for job_idx, (setting, method) in enumerate(jobs, start=1):
         method,
         "DONE",
         unlearned_model_path if SAVE_UNLEARNED_MODELS else "",
+        args.run_idx,
     )
 
     del net, net_copy, forget_buffer, retain_buffer
